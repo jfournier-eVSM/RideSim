@@ -398,6 +398,29 @@ function fmtDur(min) {
 
 /* ---------- Parsing & graph build -------------------------------------- */
 function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function polylineLength(pts) {
+  let L = 0;
+  for (let i = 0; i < pts.length - 1; i++) L += dist(pts[i], pts[i + 1]);
+  return L;
+}
+function nodePt(id) { const n = state.nodes.get(id); return n ? { x: n.x, y: n.y } : { x: 0, y: 0 }; }
+// Dense polyline for a node-id path, following each edge's stored geometry
+// (falls back to straight segments where an edge has no points).
+function buildRoute(ids) {
+  if (!ids || !ids.length) return [];
+  if (ids.length === 1) return [nodePt(ids[0])];
+  const out = [];
+  for (let i = 0; i < ids.length - 1; i++) {
+    const a = ids[i], b = ids[i + 1];
+    const edge = (state.adj.get(a) || []).find(e => e.to === b);
+    let seg = (edge && edge.points && edge.points.length >= 2)
+      ? edge.points.map(p => ({ x: p.x, y: p.y }))
+      : [nodePt(a), nodePt(b)];
+    if (i > 0) seg = seg.slice(1); // drop shared junction vertex
+    for (const p of seg) out.push(p);
+  }
+  return out;
+}
 
 function buildFromData(nodes, connections, attractions, waitsTSV) {
   state.nodes = new Map();
@@ -407,18 +430,26 @@ function buildFromData(nodes, connections, attractions, waitsTSV) {
   state.adj = new Map();
   nodes.forEach(n => state.adj.set(n.id, []));
   const seen = new Set();
-  function addEdge(a, b) {
+  // points (optional) is an ordered [{x,y}...] polyline from a -> b. When
+  // present, edge length is the polyline length; otherwise straight Euclidean.
+  function addEdge(a, b, points) {
     if (a === b) return;
     const na = state.nodes.get(a), nb = state.nodes.get(b);
     if (!na || !nb) return;
     const key = a < b ? a + "|" + b : b + "|" + a;
     if (seen.has(key)) return;
     seen.add(key);
-    const d = dist(na, nb);
-    state.adj.get(a).push({ to: b, dist: d });
-    state.adj.get(b).push({ to: a, dist: d });
+    const pts = (points && points.length >= 2) ? points.map(p => ({ x: +p.x, y: +p.y })) : null;
+    const d = pts ? polylineLength(pts) : dist(na, nb);
+    state.adj.get(a).push({ to: b, dist: d, points: pts });
+    state.adj.get(b).push({ to: a, dist: d, points: pts ? pts.slice().reverse() : null });
   }
-  connections.forEach(c => (c.to || []).forEach(t => addEdge(c.from, t)));
+  connections.forEach(c => {
+    const tos = Array.isArray(c.to) ? c.to : (c.to != null ? [c.to] : []);
+    // geometry only attaches to a single-target edge
+    const pts = (Array.isArray(c.points) && tos.length === 1) ? c.points : null;
+    tos.forEach(t => addEdge(c.from, t, pts));
+  });
 
   state.attractions = new Map();
   attractions.forEach(a => state.attractions.set(a.id, a));
@@ -503,8 +534,8 @@ function computeSequence() {
     if (!a) continue;
     const route = dijkstra(curNode, a.entranceNodeId);
     const pathIds = route ? route.path : [curNode, a.entranceNodeId];
-    const distPx = route ? route.dist
-      : dist(state.nodes.get(curNode), state.nodes.get(a.entranceNodeId));
+    const routeCoords = route ? buildRoute(pathIds) : [nodePt(curNode), nodePt(a.entranceNodeId)];
+    const distPx = route ? route.dist : polylineLength(routeCoords);
     const walk = walkTimeMin(distPx);
     const reachable = !!route;
 
@@ -516,7 +547,7 @@ function computeSequence() {
 
     steps.push({
       attractionId: attrId, name: a.name,
-      pathIds, pathCoords: pathIds.map(id => state.nodes.get(id)),
+      pathIds, routeCoords,
       reachable, distPx, walk, wait, ride,
       walkStart, walkEnd, waitStart, waitEnd, rideStart, rideEnd,
       total: walk + wait + ride,
@@ -611,18 +642,21 @@ function draw(marker) {
       const key = id < e.to ? id + e.to : e.to + id;
       if (drawn.has(key)) return; drawn.add(key);
       const m = state.nodes.get(e.to);
-      ctx.beginPath(); ctx.moveTo(tx(n.x), ty(n.y)); ctx.lineTo(tx(m.x), ty(m.y)); ctx.stroke();
+      const pts = (e.points && e.points.length >= 2) ? e.points : [n, m];
+      ctx.beginPath();
+      pts.forEach((p, i) => { i ? ctx.lineTo(tx(p.x), ty(p.y)) : ctx.moveTo(tx(p.x), ty(p.y)); });
+      ctx.stroke();
     });
   });
 
   // faint full-sequence routes
-  state.steps.forEach(s => drawPath(s.pathCoords, "rgba(92,200,255,0.16)", 3, false));
+  state.steps.forEach(s => drawPath(s.routeCoords, "rgba(92,200,255,0.16)", 3, false));
   // bright active route
   if (activeStepIndex >= 0 && state.steps[activeStepIndex])
-    drawPath(state.steps[activeStepIndex].pathCoords, null, 4, true);
-  // hover preview
+    drawPath(state.steps[activeStepIndex].routeCoords, null, 4, true);
+  // hover preview (already a coords polyline)
   if (state.hoverPath)
-    drawPath(state.hoverPath.map(id => state.nodes.get(id)), "rgba(255,204,77,0.55)", 3, false);
+    drawPath(state.hoverPath, "rgba(255,204,77,0.55)", 3, false);
 
   // junction nodes
   state.nodes.forEach(n => {
@@ -680,7 +714,7 @@ function renderAttrList() {
     div.onclick = () => { state.sequence.push(a.id); refresh(); };
     div.onmouseenter = () => {
       const r = dijkstra(lastLocation(), a.entranceNodeId);
-      state.hoverPath = r ? r.path : null; draw();
+      state.hoverPath = r ? buildRoute(r.path) : null; draw();
     };
     div.onmouseleave = () => { state.hoverPath = null; draw(); };
     el.appendChild(div);
@@ -836,7 +870,7 @@ function renderAnimAt(clock) {
     if (absT < s.walkEnd) {
       stepI = i; phase = "walk";
       const frac = s.walk > 0 ? (absT - s.walkStart) / s.walk : 1;
-      const p = pointAlong(s.pathCoords, frac);
+      const p = pointAlong(s.routeCoords, frac);
       marker = { x: p.x, y: p.y, color: "#5cc8ff" };
       info = "Walking to " + s.name;
       break;
@@ -959,7 +993,7 @@ function download(name, content, type) {
 /* ---------- Data modal -------------------------------------------------- */
 const HINTS = {
   nodes: 'Array of { id, name?, isAttraction, x, y } — node coordinates in pixels.',
-  connections: 'Array of { from, to:[...] } — undirected graph edges (duplicates OK).',
+  connections: 'Array of { from, to:[...] }, or { from, to:"id", points:[{x,y}...] } for a polyline edge (length follows the polyline).',
   attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration }.',
   waits: 'Tab-delimited: attraction_id  time_of_day(HH:MM)  avg_wait_minutes. Linearly interpolated.'
 };
@@ -978,12 +1012,24 @@ function setPaneHint() {
 }
 function currentNodesArray() { return Array.from(state.nodes.values()); }
 function currentConnArray() {
-  const out = []; const seen = new Set();
+  // Edges with geometry are emitted individually with their points; plain
+  // straight edges are grouped by `from` for compactness.
+  const seen = new Set(), grouped = new Map(), geom = [];
   state.adj.forEach((edges, id) => {
-    const tos = [];
-    edges.forEach(e => { const k = id + "->" + e.to; if (!seen.has(k)) { seen.add(k); tos.push(e.to); } });
-    if (tos.length) out.push({ from: id, to: tos });
+    edges.forEach(e => {
+      const key = id < e.to ? id + "|" + e.to : e.to + "|" + id;
+      if (seen.has(key)) return; seen.add(key);
+      if (e.points && e.points.length >= 2) {
+        geom.push({ from: id, to: e.to, points: e.points.map(p => ({ x: Math.round(p.x), y: Math.round(p.y) })) });
+      } else {
+        if (!grouped.has(id)) grouped.set(id, []);
+        grouped.get(id).push(e.to);
+      }
+    });
   });
+  const out = [];
+  grouped.forEach((tos, from) => out.push({ from, to: tos }));
+  geom.forEach(g => out.push(g));
   return out;
 }
 function currentWaitsTSV() {
