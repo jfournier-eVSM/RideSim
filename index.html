@@ -104,6 +104,31 @@
   .nowplaying.show { display: flex; }
   .nowplaying .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 700; }
 
+  /* add-node mode */
+  .canvas-wrap.adding canvas { cursor: crosshair; }
+  button.active { background: var(--accent2); color: #2a1f00; border-color: var(--accent2); font-weight: 600; }
+  .coord-readout {
+    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+    background: rgba(16,22,36,.88); border: 1px solid var(--border); border-radius: 8px;
+    padding: 5px 12px; font: 12px/1 "SF Mono", Consolas, monospace; color: var(--accent);
+    display: none; pointer-events: none;
+  }
+  .canvas-wrap.adding .coord-readout { display: block; }
+  .capture-panel {
+    position: absolute; top: 12px; right: 12px; width: 270px; flex-direction: column; gap: 8px;
+    background: rgba(16,22,36,.94); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px; display: none; box-shadow: 0 6px 22px rgba(0,0,0,.45);
+  }
+  .canvas-wrap.adding .capture-panel { display: flex; }
+  .capture-panel h4 { margin: 0; font-size: 13px; }
+  .capture-panel .cap-hint { margin: 0; font-size: 11px; color: var(--muted); }
+  .capture-panel textarea {
+    width: 100%; height: 170px; background: #0c111c; color: #cfe; border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px; font: 11px/1.35 "SF Mono", Consolas, monospace; resize: vertical;
+  }
+  .capture-panel .btns { display: flex; gap: 6px; }
+  .capture-panel .btns button { flex: 1; padding: 5px 8px; font-size: 11px; }
+
   /* sequence */
   .seq-item {
     margin: 4px 8px; padding: 8px 10px; border-radius: 7px; background: var(--panel2);
@@ -160,6 +185,7 @@
   <div class="controls">
     <label class="ctl">Start <input type="time" id="startTime" value="09:00"></label>
     <label class="ctl">ft/px <input type="number" id="ftPerPx" value="4" min="0.1" step="0.5" title="Feet per pixel — scales walk distance"></label>
+    <label class="ctl">Map <input type="range" id="bgOpacity" min="0" max="100" value="100" style="width:80px" title="Background image opacity"></label>
     <label class="ctl">Speed
       <select id="animSpeed" class="speed">
         <option value="20">Fast (20 min/s)</option>
@@ -170,6 +196,7 @@
     </label>
     <button id="playBtn" class="primary">▶ Animate</button>
     <button id="stopBtn">■ Stop</button>
+    <button id="addNodeBtn" title="Double-click the map to capture node coordinates">➕ Add Nodes</button>
     <button id="dataBtn">📋 Data</button>
     <button id="exportBtn">⬇ Export</button>
   </div>
@@ -187,6 +214,17 @@
     <div class="canvas-wrap">
       <canvas id="map"></canvas>
       <div class="nowplaying" id="nowPlaying"></div>
+      <div class="coord-readout" id="coordReadout">move over the map…</div>
+      <div class="capture-panel" id="capturePanel">
+        <h4>Captured Nodes <span id="captureCount" style="color:var(--muted);font-weight:400">(0)</span></h4>
+        <p class="cap-hint">Double-click = junction · Shift+double-click = attraction</p>
+        <textarea id="captureOut" readonly spellcheck="false" placeholder="Double-click the map to capture nodes…"></textarea>
+        <div class="btns">
+          <button id="captureCopy">Copy</button>
+          <button id="captureUndo">Undo</button>
+          <button id="captureClear" class="danger">Clear</button>
+        </div>
+      </div>
       <div class="map-legend">
         <div class="row"><span class="swatch" style="background:var(--walk)"></span> Walk path</div>
         <div class="row"><span class="swatch" style="background:var(--accent2);width:10px;height:10px;border-radius:50%"></span> Attraction</div>
@@ -263,8 +301,10 @@ SAMPLE.nodes = [
   { id: "tom1",   isAttraction: false, x: 600, y: 370 },
   { id: "tom2",   isAttraction: false, x: 710, y: 340 },
   // attraction entrance / exit nodes
-  { id: "pirates_in",  isAttraction: true, x: 175, y: 500 },
-  { id: "pirates_out", isAttraction: true, x: 215, y: 505 },
+  { id: "pirates_in",  isAttraction: true, x: 337, y: 882 },
+  { id: "pirates_out", isAttraction: true, x: 260, y: 864 },
+  { id: "CountryBears_in", isAttraction: true, x: 412, y: 716},
+  { id: "CountryBears_out", isAttraction: true, x: 412, y: 716},
   { id: "jungle_in",   isAttraction: true, x: 300, y: 480 },
   { id: "jungle_out",  isAttraction: true, x: 335, y: 470 },
   { id: "splash_in",   isAttraction: true, x: 120, y: 235 },
@@ -298,6 +338,7 @@ SAMPLE.connections = [
 
 SAMPLE.attractions = [
   { id: "pirates", name: "Pirates of the Caribbean", entranceNodeId: "pirates_in", exitNodeId: "pirates_out", displayLocation: { x: 175, y: 500 }, rideDuration: 10 },
+  { id: "countrybears", name: "Country Bears Jamboree", entranceNodeId: "CountryBears_in", exitNodeId: "CountryBears_out", displayLocation: { x: 408, y: 725 }, rideDuration: 16 },
   { id: "jungle",  name: "Jungle Cruise",            entranceNodeId: "jungle_in",  exitNodeId: "jungle_out",  displayLocation: { x: 300, y: 480 }, rideDuration: 9 },
   { id: "splash",  name: "Splash Mountain",          entranceNodeId: "splash_in",  exitNodeId: "splash_out",  displayLocation: { x: 110, y: 235 }, rideDuration: 11 },
   { id: "thunder", name: "Big Thunder Mountain",     entranceNodeId: "thunder_in", exitNodeId: "thunder_out", displayLocation: { x: 130, y: 185 }, rideDuration: 4 },
@@ -493,14 +534,31 @@ function computeSequence() {
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
 let view = { scale: 1, ox: 0, oy: 0 };
+let mapBounds = null; // node bounding box in map coords -> where background.png is stretched
+
+// Background image, scaled to the map extents (node bounding box). Optional:
+// silently skipped if background.png is absent.
+const bgImg = new Image();
+let bgReady = false;
+bgImg.onload = () => { bgReady = true; computeView(); draw(); };
+bgImg.onerror = () => { bgReady = false; };
+bgImg.src = "background.png";
+function bgOpacity() { return (parseInt(document.getElementById("bgOpacity").value, 10) || 0) / 100; }
 
 function computeView() {
+  // Fit bounds = union of the node bounding box and, when present, the
+  // background image at its own pixel space (0,0 -> natural size).
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   state.nodes.forEach(n => {
     minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
     maxX = Math.max(maxX, n.x); maxY = Math.max(maxY, n.y);
   });
-  if (!isFinite(minX)) { view = { scale: 1, ox: 0, oy: 0 }; return; }
+  if (bgReady) {
+    minX = Math.min(minX, 0); minY = Math.min(minY, 0);
+    maxX = Math.max(maxX, bgImg.naturalWidth); maxY = Math.max(maxY, bgImg.naturalHeight);
+  }
+  if (!isFinite(minX)) { view = { scale: 1, ox: 0, oy: 0 }; mapBounds = null; return; }
+  mapBounds = { minX, minY, maxX, maxY };
   const pad = 70;
   const w = canvas.clientWidth, h = canvas.clientHeight;
   const sx = (w - pad * 2) / Math.max(1, maxX - minX);
@@ -512,6 +570,13 @@ function computeView() {
 }
 function tx(x) { return x * view.scale + view.ox; }
 function ty(y) { return y * view.scale + view.oy; }
+function screenToMap(ev) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (ev.clientX - rect.left - view.ox) / view.scale,
+    y: (ev.clientY - rect.top - view.oy) / view.scale
+  };
+}
 
 function resizeCanvas() {
   const dpr = window.devicePixelRatio || 1;
@@ -525,6 +590,17 @@ function resizeCanvas() {
 function draw(marker) {
   const w = canvas.clientWidth, h = canvas.clientHeight;
   ctx.clearRect(0, 0, w, h);
+
+  // background image in its own pixel space: top-left at map (0,0), drawn
+  // at natural size through the view transform (node coords align 1:1).
+  if (bgReady) {
+    const op = bgOpacity();
+    if (op > 0) {
+      ctx.globalAlpha = op;
+      ctx.drawImage(bgImg, tx(0), ty(0), bgImg.naturalWidth * view.scale, bgImg.naturalHeight * view.scale);
+      ctx.globalAlpha = 1;
+    }
+  }
 
   // connections
   ctx.lineWidth = 2; ctx.strokeStyle = "#2b3a57";
@@ -956,6 +1032,86 @@ function esc(s) {
   return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
+/* ---------- Add-node mode ----------------------------------------------- */
+let addMode = false;
+const addedNodes = []; // session log of captured nodes
+
+function toggleAddMode() {
+  addMode = !addMode;
+  document.querySelector(".canvas-wrap").classList.toggle("adding", addMode);
+  document.getElementById("addNodeBtn").classList.toggle("active", addMode);
+  if (addMode) { stop(); renderCapture(); }
+}
+
+function onMapMove(ev) {
+  if (!addMode) return;
+  const p = screenToMap(ev);
+  document.getElementById("coordReadout").textContent =
+    "x: " + Math.round(p.x) + "   y: " + Math.round(p.y);
+}
+
+function onMapDblClick(ev) {
+  if (!addMode) return;
+  ev.preventDefault();
+  const p = screenToMap(ev);
+  const x = Math.round(p.x), y = Math.round(p.y);
+  const isAttraction = ev.shiftKey;
+  const suggested = (isAttraction ? "attr" : "node") + (addedNodes.length + 1);
+  const id = (prompt("Node id" + (isAttraction ? " (attraction)" : "") + ":", suggested) || "").trim();
+  if (!id) return;
+  if (state.nodes.has(id)) { alert('Node id "' + id + '" already exists. Pick another.'); return; }
+  const node = { id, isAttraction, x, y };
+  addedNodes.push(node);
+  // add live to the map for immediate feedback (no edges yet)
+  state.nodes.set(id, node);
+  if (!state.adj.has(id)) state.adj.set(id, []);
+  renderCapture();
+  draw();
+}
+
+function renderCapture() {
+  document.getElementById("captureCount").textContent = "(" + addedNodes.length + ")";
+  document.getElementById("captureOut").value =
+    addedNodes.length ? JSON.stringify(addedNodes, null, 2) : "";
+}
+
+function captureCopy() {
+  const text = document.getElementById("captureOut").value;
+  if (!text) return;
+  const done = () => { const b = document.getElementById("captureCopy"); b.textContent = "Copied!"; setTimeout(() => b.textContent = "Copy", 1200); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, fallbackCopy);
+  } else fallbackCopy();
+  function fallbackCopy() {
+    const ta = document.getElementById("captureOut");
+    ta.removeAttribute("readonly"); ta.focus(); ta.select();
+    try { document.execCommand("copy"); done(); } catch (e) {}
+    ta.setAttribute("readonly", "");
+  }
+}
+
+function captureRemove(node) {
+  // remove a session node from the live map (keeps non-session nodes intact)
+  state.nodes.delete(node.id);
+  state.adj.delete(node.id);
+  state.adj.forEach(edges => {
+    for (let i = edges.length - 1; i >= 0; i--) if (edges[i].to === node.id) edges.splice(i, 1);
+  });
+}
+function captureUndo() {
+  const n = addedNodes.pop();
+  if (!n) return;
+  captureRemove(n);
+  renderCapture(); refresh();
+}
+function captureClear() {
+  if (!addedNodes.length) return;
+  if (!confirm("Remove all " + addedNodes.length + " captured node(s) from the map and log?")) return;
+  addedNodes.forEach(captureRemove);
+  addedNodes.length = 0;
+  renderCapture(); refresh();
+}
+
 /* ---------- Wire up events ---------------------------------------------- */
 document.getElementById("playBtn").onclick = () => { playing ? pause() : play(); };
 document.getElementById("stopBtn").onclick = stop;
@@ -963,6 +1119,14 @@ document.getElementById("exportBtn").onclick = exportPlan;
 document.getElementById("clearSeq").onclick = () => { state.sequence = []; stop(); refresh(); };
 document.getElementById("startTime").onchange = () => { stop(); refresh(); };
 document.getElementById("ftPerPx").onchange = () => { stop(); refresh(); };
+document.getElementById("bgOpacity").oninput = () => draw();
+
+document.getElementById("addNodeBtn").onclick = toggleAddMode;
+canvas.addEventListener("mousemove", onMapMove);
+canvas.addEventListener("dblclick", onMapDblClick);
+document.getElementById("captureCopy").onclick = captureCopy;
+document.getElementById("captureUndo").onclick = captureUndo;
+document.getElementById("captureClear").onclick = captureClear;
 
 document.getElementById("dataBtn").onclick = openModal;
 document.getElementById("closeModal").onclick = () => document.getElementById("modalBg").classList.remove("show");
