@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Magic Kingdom Ride Sequence Planner</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #1a2233;
+    --panel2: #222d44;
+    --accent: #5cc8ff;
+    --accent2: #ffcc4d;
+    --walk: #5cc8ff;
+    --wait: #ff8a5c;
+    --ride: #9d7bff;
+    --text: #e6ecf5;
+    --muted: #8a98b0;
+    --good: #5fd38a;
+    --border: #2c3850;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+  header {
+    padding: 10px 16px;
+    background: linear-gradient(90deg, #1b2740, #232f4d);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; letter-spacing: .3px; }
+  header h1 span { color: var(--accent2); }
+  .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-left: auto; }
+  label.ctl { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+  input, select, button, textarea { font-family: inherit; }
+  input[type="time"], input[type="number"], select {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 7px; font-size: 13px;
+  }
+  input[type="number"] { width: 64px; }
+  button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 13px;
+    transition: background .15s, border-color .15s;
+  }
+  button:hover { background: #2e3c5a; border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #08263a; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { background: #7ad3ff; }
+  button.danger:hover { border-color: #ff6b6b; color: #ff9b9b; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+
+  main { display: flex; flex: 1; min-height: 0; }
+  .col { display: flex; flex-direction: column; min-height: 0; }
+  .col.left { width: 240px; border-right: 1px solid var(--border); }
+  .col.center { flex: 1; min-width: 0; }
+  .col.right { width: 340px; border-left: 1px solid var(--border); }
+
+  .section-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted);
+    padding: 10px 12px 6px; font-weight: 700;
+  }
+  .scroll { overflow-y: auto; flex: 1; }
+  .scroll::-webkit-scrollbar { width: 9px; }
+  .scroll::-webkit-scrollbar-thumb { background: #33405c; border-radius: 5px; }
+
+  /* attraction picker */
+  .attr-item {
+    margin: 3px 8px; padding: 8px 10px; border-radius: 7px; cursor: pointer;
+    background: var(--panel); border: 1px solid transparent; display: flex; align-items: center; gap: 8px;
+  }
+  .attr-item:hover { background: var(--panel2); border-color: var(--accent); }
+  .attr-item .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent2); flex: none; }
+  .attr-item .nm { flex: 1; font-size: 13px; }
+  .attr-item .meta { font-size: 11px; color: var(--muted); }
+
+  /* canvas wrap */
+  .canvas-wrap { position: relative; flex: 1; min-height: 0; background:
+     radial-gradient(circle at 50% 40%, #16203a 0%, #0d1322 80%); }
+  canvas { display: block; width: 100%; height: 100%; }
+  .map-legend {
+    position: absolute; left: 12px; bottom: 12px; background: rgba(16,22,36,.82);
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 11px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .map-legend .row { display: flex; align-items: center; gap: 7px; }
+  .swatch { width: 14px; height: 4px; border-radius: 2px; }
+  .nowplaying {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    background: rgba(16,22,36,.9); border: 1px solid var(--border); border-radius: 20px;
+    padding: 6px 16px; font-size: 13px; display: none; align-items: center; gap: 10px;
+    white-space: nowrap; box-shadow: 0 4px 18px rgba(0,0,0,.4);
+  }
+  .nowplaying.show { display: flex; }
+  .nowplaying .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 700; }
+
+  /* sequence */
+  .seq-item {
+    margin: 4px 8px; padding: 8px 10px; border-radius: 7px; background: var(--panel2);
+    border: 1px solid var(--border); display: flex; align-items: center; gap: 8px; cursor: grab;
+  }
+  .seq-item.dragging { opacity: .4; }
+  .seq-item.drop-target { border-color: var(--accent); }
+  .seq-item .idx { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #08263a;
+    font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: none; }
+  .seq-item .nm { flex: 1; font-size: 13px; }
+  .seq-item .rm { color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+  .seq-item .rm:hover { color: #ff8a8a; background: rgba(255,80,80,.12); }
+  .empty-hint { color: var(--muted); font-size: 12px; padding: 12px; text-align: center; font-style: italic; }
+
+  /* timeline */
+  .tl-step { margin: 0 10px 8px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .tl-head { padding: 6px 10px; background: var(--panel2); font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; }
+  .tl-head .tot { color: var(--muted); font-weight: 400; }
+  .tl-row { display: flex; align-items: center; gap: 8px; padding: 4px 10px; font-size: 12px; }
+  .tl-row .bar { height: 8px; border-radius: 4px; flex: none; min-width: 4px; }
+  .tl-row .lbl { flex: 1; }
+  .tl-row .tm { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 11px; }
+  .tl-row.walk .bar { background: var(--walk); }
+  .tl-row.wait .bar { background: var(--wait); }
+  .tl-row.ride .bar { background: var(--ride); }
+  .summary { padding: 10px 12px; border-top: 1px solid var(--border); font-size: 13px; }
+  .summary .big { font-size: 22px; font-weight: 700; color: var(--accent2); }
+  .summary .row { display: flex; justify-content: space-between; margin-top: 4px; color: var(--muted); }
+
+  /* data modal */
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; z-index: 50; }
+  .modal-bg.show { display: flex; align-items: center; justify-content: center; }
+  .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; width: min(900px, 94vw);
+    max-height: 90vh; display: flex; flex-direction: column; }
+  .modal h2 { margin: 0; padding: 14px 18px; border-bottom: 1px solid var(--border); font-size: 15px; }
+  .modal-body { padding: 14px 18px; overflow-y: auto; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .tab { padding: 5px 11px; border-radius: 6px; background: var(--panel2); cursor: pointer; font-size: 12px; border: 1px solid var(--border); }
+  .tab.active { background: var(--accent); color: #08263a; font-weight: 600; }
+  .modal textarea { width: 100%; height: 300px; background: #0c111c; color: #cfe; border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px; font: 12px/1.4 "SF Mono", Consolas, monospace; resize: vertical; }
+  .modal-foot { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; gap: 10px; align-items: center; }
+  .modal-foot .err { color: #ff8a8a; font-size: 12px; flex: 1; }
+  .modal-foot .ok { color: var(--good); font-size: 12px; flex: 1; }
+  .pane { display: none; }
+  .pane.active { display: block; }
+  .hint { color: var(--muted); font-size: 11px; margin: 0 0 8px; }
+  .speed { width: 130px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🏰 Magic Kingdom <span>Ride Sequence Planner</span></h1>
+  <div class="controls">
+    <label class="ctl">Start <input type="time" id="startTime" value="09:00"></label>
+    <label class="ctl">ft/px <input type="number" id="ftPerPx" value="4" min="0.1" step="0.5" title="Feet per pixel — scales walk distance"></label>
+    <label class="ctl">Speed
+      <select id="animSpeed" class="speed">
+        <option value="20">Fast (20 min/s)</option>
+        <option value="8" selected>Normal (8 min/s)</option>
+        <option value="3">Slow (3 min/s)</option>
+        <option value="60">Instant (60 min/s)</option>
+      </select>
+    </label>
+    <button id="playBtn" class="primary">▶ Animate</button>
+    <button id="stopBtn">■ Stop</button>
+    <button id="dataBtn">📋 Data</button>
+    <button id="exportBtn">⬇ Export</button>
+  </div>
+</header>
+
+<main>
+  <!-- LEFT: attraction picker -->
+  <div class="col left">
+    <div class="section-title">Attractions — click to add</div>
+    <div class="scroll" id="attrList"></div>
+  </div>
+
+  <!-- CENTER: map -->
+  <div class="col center">
+    <div class="canvas-wrap">
+      <canvas id="map"></canvas>
+      <div class="nowplaying" id="nowPlaying"></div>
+      <div class="map-legend">
+        <div class="row"><span class="swatch" style="background:var(--walk)"></span> Walk path</div>
+        <div class="row"><span class="swatch" style="background:var(--accent2);width:10px;height:10px;border-radius:50%"></span> Attraction</div>
+        <div class="row"><span class="swatch" style="background:#46557a;width:8px;height:8px;border-radius:50%"></span> Path junction</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: sequence + timeline -->
+  <div class="col right">
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Your Sequence</span>
+      <button id="clearSeq" class="danger" style="padding:3px 9px;font-size:11px">Clear</button>
+    </div>
+    <div id="seqList" style="max-height:32vh;overflow-y:auto"></div>
+    <div class="section-title">Timeline</div>
+    <div class="scroll" id="timeline"></div>
+    <div class="summary" id="summary"></div>
+  </div>
+</main>
+
+<!-- DATA MODAL -->
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <h2>Load / Edit Data</h2>
+    <div class="modal-body">
+      <div class="tabs">
+        <div class="tab active" data-tab="nodes">Nodes</div>
+        <div class="tab" data-tab="connections">Connections</div>
+        <div class="tab" data-tab="attractions">Attractions</div>
+        <div class="tab" data-tab="waits">Wait Times (TSV)</div>
+      </div>
+      <p class="hint" id="paneHint"></p>
+      <div class="pane active" data-pane="nodes"><textarea id="ta-nodes" spellcheck="false"></textarea></div>
+      <div class="pane" data-pane="connections"><textarea id="ta-connections" spellcheck="false"></textarea></div>
+      <div class="pane" data-pane="attractions"><textarea id="ta-attractions" spellcheck="false"></textarea></div>
+      <div class="pane" data-pane="waits"><textarea id="ta-waits" spellcheck="false"></textarea></div>
+      <p class="hint">Or load files:
+        <input type="file" id="fileLoad" accept=".json,.txt,.tsv,.csv" multiple style="font-size:11px">
+        (auto-detects by content)
+      </p>
+    </div>
+    <div class="modal-foot">
+      <span id="modalMsg" class="err"></span>
+      <button id="loadSample">Reset to Sample</button>
+      <button id="applyData" class="primary">Apply &amp; Render</button>
+      <button id="closeModal">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =========================================================================
+   MAGIC KINGDOM RIDE SEQUENCE PLANNER
+   Self-contained: graph + Dijkstra, wait interpolation, sequence sim,
+   canvas render, animation, drag-reorder, export.
+   ========================================================================= */
+
+const WALK_FT_PER_MIN = 88; // ~3 mph
+
+/* ---------- Embedded sample data ---------------------------------------- */
+const SAMPLE = {};
+
+SAMPLE.nodes = [
+  // path junctions
+  { id: "hub",    isAttraction: false, x: 450, y: 340 },
+  { id: "adv1",   isAttraction: false, x: 320, y: 430 },
+  { id: "adv2",   isAttraction: false, x: 220, y: 470 },
+  { id: "front1", isAttraction: false, x: 270, y: 320 },
+  { id: "front2", isAttraction: false, x: 175, y: 270 },
+  { id: "lib1",   isAttraction: false, x: 330, y: 250 },
+  { id: "fan1",   isAttraction: false, x: 460, y: 215 },
+  { id: "fan2",   isAttraction: false, x: 560, y: 165 },
+  { id: "tom1",   isAttraction: false, x: 600, y: 370 },
+  { id: "tom2",   isAttraction: false, x: 710, y: 340 },
+  // attraction entrance / exit nodes
+  { id: "pirates_in",  isAttraction: true, x: 175, y: 500 },
+  { id: "pirates_out", isAttraction: true, x: 215, y: 505 },
+  { id: "jungle_in",   isAttraction: true, x: 300, y: 480 },
+  { id: "jungle_out",  isAttraction: true, x: 335, y: 470 },
+  { id: "splash_in",   isAttraction: true, x: 120, y: 235 },
+  { id: "splash_out",  isAttraction: true, x: 150, y: 250 },
+  { id: "thunder_in",  isAttraction: true, x: 135, y: 195 },
+  { id: "thunder_out", isAttraction: true, x: 165, y: 210 },
+  { id: "mansion_in",  isAttraction: true, x: 300, y: 195 },
+  { id: "mansion_out", isAttraction: true, x: 330, y: 200 },
+  { id: "peter_in",    isAttraction: true, x: 455, y: 160 },
+  { id: "peter_out",   isAttraction: true, x: 480, y: 165 },
+  { id: "small_in",    isAttraction: true, x: 575, y: 120 },
+  { id: "small_out",   isAttraction: true, x: 600, y: 130 },
+  { id: "space_in",    isAttraction: true, x: 730, y: 300 },
+  { id: "space_out",   isAttraction: true, x: 745, y: 325 },
+  { id: "buzz_in",     isAttraction: true, x: 660, y: 430 },
+  { id: "buzz_out",    isAttraction: true, x: 690, y: 435 }
+];
+
+SAMPLE.connections = [
+  { from: "hub",    to: ["adv1", "front1", "lib1", "fan1", "tom1"] },
+  { from: "adv1",   to: ["adv2", "jungle_in", "jungle_out"] },
+  { from: "adv2",   to: ["pirates_in", "pirates_out", "front2"] },
+  { from: "front1", to: ["front2", "lib1"] },
+  { from: "front2", to: ["splash_in", "splash_out", "thunder_in", "thunder_out"] },
+  { from: "lib1",   to: ["mansion_in", "mansion_out", "fan1"] },
+  { from: "fan1",   to: ["fan2", "peter_in", "peter_out"] },
+  { from: "fan2",   to: ["small_in", "small_out"] },
+  { from: "tom1",   to: ["tom2", "buzz_in", "buzz_out"] },
+  { from: "tom2",   to: ["space_in", "space_out"] }
+];
+
+SAMPLE.attractions = [
+  { id: "pirates", name: "Pirates of the Caribbean", entranceNodeId: "pirates_in", exitNodeId: "pirates_out", displayLocation: { x: 175, y: 500 }, rideDuration: 10 },
+  { id: "jungle",  name: "Jungle Cruise",            entranceNodeId: "jungle_in",  exitNodeId: "jungle_out",  displayLocation: { x: 300, y: 480 }, rideDuration: 9 },
+  { id: "splash",  name: "Splash Mountain",          entranceNodeId: "splash_in",  exitNodeId: "splash_out",  displayLocation: { x: 110, y: 235 }, rideDuration: 11 },
+  { id: "thunder", name: "Big Thunder Mountain",     entranceNodeId: "thunder_in", exitNodeId: "thunder_out", displayLocation: { x: 130, y: 185 }, rideDuration: 4 },
+  { id: "mansion", name: "Haunted Mansion",          entranceNodeId: "mansion_in", exitNodeId: "mansion_out", displayLocation: { x: 295, y: 185 }, rideDuration: 8 },
+  { id: "peter",   name: "Peter Pan's Flight",       entranceNodeId: "peter_in",   exitNodeId: "peter_out",   displayLocation: { x: 450, y: 150 }, rideDuration: 3 },
+  { id: "small",   name: "it's a small world",       entranceNodeId: "small_in",   exitNodeId: "small_out",   displayLocation: { x: 575, y: 110 }, rideDuration: 11 },
+  { id: "space",   name: "Space Mountain",           entranceNodeId: "space_in",   exitNodeId: "space_out",   displayLocation: { x: 745, y: 295 }, rideDuration: 3 },
+  { id: "buzz",    name: "Buzz Lightyear",           entranceNodeId: "buzz_in",    exitNodeId: "buzz_out",    displayLocation: { x: 660, y: 445 }, rideDuration: 5 }
+];
+
+// Wait times TSV — hourly points, code interpolates between them.
+SAMPLE.waitsTSV = (function () {
+  const profile = {
+    pirates: [15, 25, 40, 55, 60, 55, 45, 40, 45, 50, 45, 35, 25],
+    jungle:  [10, 20, 35, 45, 55, 50, 45, 40, 40, 45, 40, 30, 20],
+    splash:  [20, 40, 55, 70, 85, 80, 70, 65, 70, 75, 65, 50, 35],
+    thunder: [15, 30, 45, 60, 70, 65, 55, 50, 55, 60, 50, 40, 25],
+    mansion: [10, 20, 30, 45, 50, 50, 45, 40, 45, 50, 45, 35, 25],
+    peter:   [30, 45, 60, 75, 85, 80, 75, 70, 75, 80, 70, 55, 40],
+    small:   [5,  10, 15, 25, 30, 30, 25, 20, 25, 30, 25, 20, 15],
+    space:   [20, 35, 50, 65, 75, 70, 60, 55, 60, 70, 60, 45, 30],
+    buzz:    [10, 15, 25, 35, 40, 40, 35, 30, 35, 40, 35, 25, 20]
+  };
+  const lines = ["attraction_id\ttime_of_day\tavg_wait_minutes"];
+  for (const id in profile) {
+    profile[id].forEach((w, i) => {
+      const hh = String(9 + i).padStart(2, "0");
+      lines.push(id + "\t" + hh + ":00\t" + w);
+    });
+  }
+  return lines.join("\n");
+})();
+
+/* ---------- State ------------------------------------------------------- */
+const state = {
+  nodes: new Map(),        // id -> node
+  adj: new Map(),          // id -> [{to, dist(px)}]
+  attractions: new Map(),  // id -> attraction
+  waits: new Map(),        // attractionId -> [{t(min), w}]
+  sequence: [],            // [attractionId, ...]
+  steps: [],               // computed sim steps
+  hoverPath: null          // node-id path to preview
+};
+
+/* ---------- Time helpers ------------------------------------------------ */
+function hmToMin(hm) { const p = hm.split(":"); return (+p[0]) * 60 + (+p[1]); }
+function minToHM(min) {
+  min = Math.round(min);
+  const h = Math.floor(min / 60) % 24, m = ((min % 60) + 60) % 60;
+  return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+}
+function fmtDur(min) {
+  min = Math.round(min);
+  if (min < 60) return min + "m";
+  return Math.floor(min / 60) + "h " + (min % 60) + "m";
+}
+
+/* ---------- Parsing & graph build -------------------------------------- */
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+function buildFromData(nodes, connections, attractions, waitsTSV) {
+  state.nodes = new Map();
+  nodes.forEach(n => state.nodes.set(n.id, n));
+
+  // adjacency (undirected, dedup)
+  state.adj = new Map();
+  nodes.forEach(n => state.adj.set(n.id, []));
+  const seen = new Set();
+  function addEdge(a, b) {
+    if (a === b) return;
+    const na = state.nodes.get(a), nb = state.nodes.get(b);
+    if (!na || !nb) return;
+    const key = a < b ? a + "|" + b : b + "|" + a;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const d = dist(na, nb);
+    state.adj.get(a).push({ to: b, dist: d });
+    state.adj.get(b).push({ to: a, dist: d });
+  }
+  connections.forEach(c => (c.to || []).forEach(t => addEdge(c.from, t)));
+
+  state.attractions = new Map();
+  attractions.forEach(a => state.attractions.set(a.id, a));
+
+  // wait times
+  state.waits = new Map();
+  waitsTSV.split(/\r?\n/).forEach(line => {
+    line = line.trim();
+    if (!line) return;
+    const parts = line.split(/\t+|\s{2,}|,/).map(s => s.trim());
+    if (parts.length < 3) return;
+    const id = parts[0], tod = parts[1], w = parts[2];
+    if (id === "attraction_id" || isNaN(parseFloat(w))) return;
+    if (!state.waits.has(id)) state.waits.set(id, []);
+    state.waits.get(id).push({ t: hmToMin(tod), w: parseFloat(w) });
+  });
+  state.waits.forEach(arr => arr.sort((a, b) => a.t - b.t));
+}
+
+/* ---------- Dijkstra ---------------------------------------------------- */
+function dijkstra(start, goal) {
+  if (start === goal) return { path: [start], dist: 0 };
+  if (!state.nodes.has(start) || !state.nodes.has(goal)) return null;
+  const distTo = new Map(), prev = new Map(), visited = new Set();
+  state.nodes.forEach((_, id) => distTo.set(id, Infinity));
+  distTo.set(start, 0);
+  const pq = [{ id: start, d: 0 }];
+  while (pq.length) {
+    let bi = 0;
+    for (let i = 1; i < pq.length; i++) if (pq[i].d < pq[bi].d) bi = i;
+    const cur = pq.splice(bi, 1)[0].id;
+    if (visited.has(cur)) continue;
+    visited.add(cur);
+    if (cur === goal) break;
+    for (const e of (state.adj.get(cur) || [])) {
+      if (visited.has(e.to)) continue;
+      const nd = distTo.get(cur) + e.dist;
+      if (nd < distTo.get(e.to)) {
+        distTo.set(e.to, nd);
+        prev.set(e.to, cur);
+        pq.push({ id: e.to, d: nd });
+      }
+    }
+  }
+  if (distTo.get(goal) === Infinity) return null;
+  const path = [];
+  let cur = goal;
+  while (cur !== undefined) { path.unshift(cur); if (cur === start) break; cur = prev.get(cur); }
+  return { path, dist: distTo.get(goal) };
+}
+
+/* ---------- Walk time & wait interpolation ------------------------------ */
+function ftPerPx() { return parseFloat(document.getElementById("ftPerPx").value) || 4; }
+function walkTimeMin(distPx) { return (distPx * ftPerPx()) / WALK_FT_PER_MIN; }
+
+function interpWait(attractionId, timeMin) {
+  const arr = state.waits.get(attractionId);
+  if (!arr || !arr.length) return 0;
+  if (timeMin <= arr[0].t) return arr[0].w;
+  if (timeMin >= arr[arr.length - 1].t) return arr[arr.length - 1].w;
+  for (let i = 0; i < arr.length - 1; i++) {
+    const a = arr[i], b = arr[i + 1];
+    if (timeMin >= a.t && timeMin <= b.t) {
+      const f = (timeMin - a.t) / (b.t - a.t);
+      return a.w + f * (b.w - a.w);
+    }
+  }
+  return arr[arr.length - 1].w;
+}
+
+/* ---------- Sequence simulation ----------------------------------------- */
+function startNode() { return state.nodes.has("hub") ? "hub" : (state.nodes.keys().next().value); }
+
+function computeSequence() {
+  const startMin = hmToMin(document.getElementById("startTime").value || "09:00");
+  let curTime = startMin;
+  let curNode = startNode();
+  const steps = [];
+
+  for (const attrId of state.sequence) {
+    const a = state.attractions.get(attrId);
+    if (!a) continue;
+    const route = dijkstra(curNode, a.entranceNodeId);
+    const pathIds = route ? route.path : [curNode, a.entranceNodeId];
+    const distPx = route ? route.dist
+      : dist(state.nodes.get(curNode), state.nodes.get(a.entranceNodeId));
+    const walk = walkTimeMin(distPx);
+    const reachable = !!route;
+
+    const walkStart = curTime, walkEnd = walkStart + walk;
+    const wait = interpWait(attrId, walkEnd);
+    const waitStart = walkEnd, waitEnd = waitStart + wait;
+    const ride = a.rideDuration || 0;
+    const rideStart = waitEnd, rideEnd = rideStart + ride;
+
+    steps.push({
+      attractionId: attrId, name: a.name,
+      pathIds, pathCoords: pathIds.map(id => state.nodes.get(id)),
+      reachable, distPx, walk, wait, ride,
+      walkStart, walkEnd, waitStart, waitEnd, rideStart, rideEnd,
+      total: walk + wait + ride,
+      entranceNodeId: a.entranceNodeId, exitNodeId: a.exitNodeId
+    });
+
+    curTime = rideEnd;
+    curNode = a.exitNodeId;
+  }
+  state.steps = steps;
+  return steps;
+}
+
+/* ---------- Canvas rendering -------------------------------------------- */
+const canvas = document.getElementById("map");
+const ctx = canvas.getContext("2d");
+let view = { scale: 1, ox: 0, oy: 0 };
+
+function computeView() {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  state.nodes.forEach(n => {
+    minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x); maxY = Math.max(maxY, n.y);
+  });
+  if (!isFinite(minX)) { view = { scale: 1, ox: 0, oy: 0 }; return; }
+  const pad = 70;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  const sx = (w - pad * 2) / Math.max(1, maxX - minX);
+  const sy = (h - pad * 2) / Math.max(1, maxY - minY);
+  const scale = Math.min(sx, sy);
+  view.scale = scale;
+  view.ox = pad - minX * scale + (w - pad * 2 - (maxX - minX) * scale) / 2;
+  view.oy = pad - minY * scale + (h - pad * 2 - (maxY - minY) * scale) / 2;
+}
+function tx(x) { return x * view.scale + view.ox; }
+function ty(y) { return y * view.scale + view.oy; }
+
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  computeView();
+  draw();
+}
+
+function draw(marker) {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  ctx.clearRect(0, 0, w, h);
+
+  // connections
+  ctx.lineWidth = 2; ctx.strokeStyle = "#2b3a57";
+  const drawn = new Set();
+  state.adj.forEach((edges, id) => {
+    const n = state.nodes.get(id);
+    edges.forEach(e => {
+      const key = id < e.to ? id + e.to : e.to + id;
+      if (drawn.has(key)) return; drawn.add(key);
+      const m = state.nodes.get(e.to);
+      ctx.beginPath(); ctx.moveTo(tx(n.x), ty(n.y)); ctx.lineTo(tx(m.x), ty(m.y)); ctx.stroke();
+    });
+  });
+
+  // faint full-sequence routes
+  state.steps.forEach(s => drawPath(s.pathCoords, "rgba(92,200,255,0.16)", 3, false));
+  // bright active route
+  if (activeStepIndex >= 0 && state.steps[activeStepIndex])
+    drawPath(state.steps[activeStepIndex].pathCoords, null, 4, true);
+  // hover preview
+  if (state.hoverPath)
+    drawPath(state.hoverPath.map(id => state.nodes.get(id)), "rgba(255,204,77,0.55)", 3, false);
+
+  // junction nodes
+  state.nodes.forEach(n => {
+    if (n.isAttraction) return;
+    ctx.beginPath(); ctx.arc(tx(n.x), ty(n.y), 3.5, 0, 7); ctx.fillStyle = "#46557a"; ctx.fill();
+  });
+
+  // attractions
+  state.attractions.forEach(a => {
+    const inSeq = state.sequence.indexOf(a.id);
+    const loc = a.displayLocation || state.nodes.get(a.entranceNodeId);
+    const X = tx(loc.x), Y = ty(loc.y);
+    ctx.beginPath(); ctx.arc(X, Y, 8, 0, 7);
+    ctx.fillStyle = inSeq >= 0 ? "#5cc8ff" : "#ffcc4d"; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = "#0f1420"; ctx.stroke();
+    if (inSeq >= 0) {
+      ctx.fillStyle = "#08263a"; ctx.font = "bold 10px sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(String(inSeq + 1), X, Y);
+    }
+    ctx.fillStyle = "#cdd8ec"; ctx.font = "11px sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    ctx.fillText(a.name, X, Y + 11);
+  });
+
+  // marker
+  if (marker) {
+    ctx.beginPath(); ctx.arc(tx(marker.x), ty(marker.y), 7, 0, 7);
+    ctx.fillStyle = marker.color || "#fff"; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = "#0f1420"; ctx.stroke();
+    ctx.beginPath(); ctx.arc(tx(marker.x), ty(marker.y), 11, 0, 7);
+    ctx.strokeStyle = marker.color || "#fff"; ctx.globalAlpha = .4; ctx.stroke(); ctx.globalAlpha = 1;
+  }
+}
+function drawPath(coords, color, lw, bright) {
+  if (!coords || coords.length < 2) return;
+  ctx.lineWidth = lw; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.strokeStyle = bright ? "#5cc8ff" : color;
+  if (bright) { ctx.shadowColor = "#5cc8ff"; ctx.shadowBlur = 8; }
+  ctx.beginPath();
+  coords.forEach((c, i) => { i ? ctx.lineTo(tx(c.x), ty(c.y)) : ctx.moveTo(tx(c.x), ty(c.y)); });
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+/* ---------- UI: attraction picker --------------------------------------- */
+function renderAttrList() {
+  const el = document.getElementById("attrList");
+  el.innerHTML = "";
+  state.attractions.forEach(a => {
+    const div = document.createElement("div");
+    div.className = "attr-item";
+    div.innerHTML = '<span class="dot"></span><span class="nm">' + esc(a.name) +
+      '</span><span class="meta">' + (a.rideDuration || 0) + 'm</span>';
+    div.onclick = () => { state.sequence.push(a.id); refresh(); };
+    div.onmouseenter = () => {
+      const r = dijkstra(lastLocation(), a.entranceNodeId);
+      state.hoverPath = r ? r.path : null; draw();
+    };
+    div.onmouseleave = () => { state.hoverPath = null; draw(); };
+    el.appendChild(div);
+  });
+}
+function lastLocation() {
+  if (state.sequence.length) {
+    const last = state.attractions.get(state.sequence[state.sequence.length - 1]);
+    if (last) return last.exitNodeId;
+  }
+  return startNode();
+}
+
+/* ---------- UI: sequence list w/ drag reorder --------------------------- */
+let dragIdx = null;
+function renderSeq() {
+  const el = document.getElementById("seqList");
+  el.innerHTML = "";
+  if (!state.sequence.length) {
+    el.innerHTML = '<div class="empty-hint">Click attractions on the left to build your day &rarr;</div>';
+    return;
+  }
+  state.sequence.forEach((id, i) => {
+    const a = state.attractions.get(id);
+    const div = document.createElement("div");
+    div.className = "seq-item"; div.draggable = true; div.dataset.idx = i;
+    div.innerHTML = '<span class="idx">' + (i + 1) + '</span><span class="nm">' +
+      esc(a ? a.name : id) + '</span><span class="rm" title="Remove">&#10005;</span>';
+    div.querySelector(".rm").onclick = (e) => { e.stopPropagation(); state.sequence.splice(i, 1); refresh(); };
+    div.addEventListener("dragstart", () => { dragIdx = i; div.classList.add("dragging"); });
+    div.addEventListener("dragend", () => {
+      div.classList.remove("dragging");
+      document.querySelectorAll(".seq-item").forEach(x => x.classList.remove("drop-target"));
+    });
+    div.addEventListener("dragover", e => { e.preventDefault(); div.classList.add("drop-target"); });
+    div.addEventListener("dragleave", () => div.classList.remove("drop-target"));
+    div.addEventListener("drop", e => {
+      e.preventDefault();
+      if (dragIdx === null || dragIdx === i) return;
+      const m = state.sequence.splice(dragIdx, 1)[0];
+      state.sequence.splice(i, 0, m);
+      dragIdx = null; refresh();
+    });
+    el.appendChild(div);
+  });
+}
+
+/* ---------- UI: timeline ------------------------------------------------ */
+function renderTimeline() {
+  const el = document.getElementById("timeline");
+  el.innerHTML = "";
+  if (!state.steps.length) { el.innerHTML = '<div class="empty-hint">No steps yet.</div>'; return; }
+  const maxSpan = Math.max.apply(null, state.steps.map(s => s.total).concat([1]));
+  state.steps.forEach((s, i) => {
+    const box = document.createElement("div");
+    box.className = "tl-step";
+    const warn = s.reachable ? "" : ' <span style="color:#ff8a8a">(no path!)</span>';
+    const defs = [
+      ["walk", "Walk to " + s.name, s.walk, s.walkStart, s.walkEnd],
+      ["wait", "Wait for " + s.name, s.wait, s.waitStart, s.waitEnd],
+      ["ride", "Ride " + s.name, s.ride, s.rideStart, s.rideEnd]
+    ];
+    const rows = defs.map(d => {
+      const wpct = Math.max(4, (d[2] / maxSpan) * 120);
+      return '<div class="tl-row ' + d[0] + '" data-step="' + i + '">' +
+        '<span class="bar" style="width:' + wpct + 'px"></span>' +
+        '<span class="lbl">' + esc(d[1]) + ' <b>' + fmtDur(d[2]) + '</b></span>' +
+        '<span class="tm">' + minToHM(d[3]) + '&ndash;' + minToHM(d[4]) + '</span></div>';
+    }).join("");
+    box.innerHTML = '<div class="tl-head"><span>' + (i + 1) + '. ' + esc(s.name) + warn +
+      '</span><span class="tot">' + fmtDur(s.total) + '</span></div>' + rows;
+    el.appendChild(box);
+  });
+}
+
+function renderSummary() {
+  const el = document.getElementById("summary");
+  if (!state.steps.length) { el.innerHTML = '<div class="row">Add attractions to see totals.</div>'; return; }
+  const last = state.steps[state.steps.length - 1];
+  const totWalk = state.steps.reduce((s, x) => s + x.walk, 0);
+  const totWait = state.steps.reduce((s, x) => s + x.wait, 0);
+  const totRide = state.steps.reduce((s, x) => s + x.ride, 0);
+  const grand = totWalk + totWait + totRide;
+  el.innerHTML =
+    '<div class="big">' + fmtDur(grand) + ' total</div>' +
+    '<div class="row"><span>Finish time</span><span>' + minToHM(last.rideEnd) + '</span></div>' +
+    '<div class="row"><span style="color:var(--walk)">Walking</span><span>' + fmtDur(totWalk) + '</span></div>' +
+    '<div class="row"><span style="color:var(--wait)">Waiting</span><span>' + fmtDur(totWait) + '</span></div>' +
+    '<div class="row"><span style="color:var(--ride)">Riding</span><span>' + fmtDur(totRide) + '</span></div>' +
+    '<div class="row"><span>Attractions</span><span>' + state.steps.length + '</span></div>';
+}
+
+/* ---------- Master refresh ---------------------------------------------- */
+function refresh() {
+  computeSequence();
+  renderAttrList();
+  renderSeq();
+  renderTimeline();
+  renderSummary();
+  draw();
+}
+
+/* ---------- Animation --------------------------------------------------- */
+let animRAF = null, animClock = 0, playing = false, activeStepIndex = -1, lastFrameTime = 0;
+
+function simSpanMin() {
+  if (!state.steps.length) return 0;
+  return state.steps[state.steps.length - 1].rideEnd - state.steps[0].walkStart;
+}
+
+function play() {
+  if (!state.steps.length) return;
+  playing = true;
+  document.getElementById("playBtn").textContent = "⏸ Pause";
+  if (animClock >= simSpanMin() - 0.001) animClock = 0;
+  lastFrameTime = 0;
+  animRAF = requestAnimationFrame(frame);
+}
+function pause() {
+  playing = false;
+  document.getElementById("playBtn").textContent = "▶ Resume";
+  if (animRAF) cancelAnimationFrame(animRAF);
+}
+function stop() {
+  playing = false; animClock = 0; activeStepIndex = -1;
+  if (animRAF) cancelAnimationFrame(animRAF);
+  document.getElementById("playBtn").textContent = "▶ Animate";
+  document.getElementById("nowPlaying").classList.remove("show");
+  document.querySelectorAll(".tl-row").forEach(r => r.style.background = "");
+  draw();
+}
+
+function frame(ts) {
+  if (!lastFrameTime) lastFrameTime = ts;
+  const dtSec = (ts - lastFrameTime) / 1000;
+  lastFrameTime = ts;
+  const speed = parseFloat(document.getElementById("animSpeed").value);
+  animClock += dtSec * speed;
+
+  const span = simSpanMin();
+  if (animClock >= span) { animClock = span; renderAnimAt(animClock); stop(); return; }
+  renderAnimAt(animClock);
+  if (playing) animRAF = requestAnimationFrame(frame);
+}
+
+function renderAnimAt(clock) {
+  const base = state.steps[0].walkStart;
+  const absT = base + clock;
+  let marker = null, phase = "", stepI = -1, info = "";
+
+  for (let i = 0; i < state.steps.length; i++) {
+    const s = state.steps[i];
+    if (absT < s.walkEnd) {
+      stepI = i; phase = "walk";
+      const frac = s.walk > 0 ? (absT - s.walkStart) / s.walk : 1;
+      const p = pointAlong(s.pathCoords, frac);
+      marker = { x: p.x, y: p.y, color: "#5cc8ff" };
+      info = "Walking to " + s.name;
+      break;
+    } else if (absT < s.waitEnd) {
+      stepI = i; phase = "wait";
+      const ent = state.nodes.get(s.entranceNodeId);
+      marker = { x: ent.x, y: ent.y, color: "#ff8a5c" };
+      info = "Waiting for " + s.name + " — " + Math.round(absT - s.waitStart) + "/" + Math.round(s.wait) + " min";
+      break;
+    } else if (absT < s.rideEnd) {
+      stepI = i; phase = "ride";
+      const a = state.attractions.get(s.attractionId);
+      const disp = (a && a.displayLocation) || state.nodes.get(s.entranceNodeId);
+      marker = { x: disp.x, y: disp.y, color: "#9d7bff" };
+      info = "🎢 Riding " + s.name;
+      break;
+    }
+  }
+  if (stepI < 0) {
+    const s = state.steps[state.steps.length - 1];
+    const ex = state.nodes.get(s.exitNodeId);
+    marker = { x: ex.x, y: ex.y, color: "#5fd38a" };
+    phase = "done"; info = "Day complete!";
+  }
+  activeStepIndex = stepI;
+  draw(marker);
+
+  const np = document.getElementById("nowPlaying");
+  np.classList.add("show");
+  const colors = { walk: "var(--walk)", wait: "var(--wait)", ride: "var(--ride)", done: "var(--good)" };
+  const labels = { walk: "WALK", wait: "WAIT", ride: "RIDE", done: "DONE" };
+  np.innerHTML = '<span class="badge" style="background:' + colors[phase] + ';color:#0f1420">' +
+    labels[phase] + '</span><span>' + esc(info) + '</span>' +
+    '<span style="color:var(--muted)">🕐 ' + minToHM(absT) + '</span>';
+
+  // highlight active timeline row
+  document.querySelectorAll(".tl-row").forEach(r => r.style.background = "");
+  if (stepI >= 0) {
+    const rows = document.querySelectorAll('.tl-row[data-step="' + stepI + '"]');
+    const idx = { walk: 0, wait: 1, ride: 2 }[phase];
+    if (rows[idx]) rows[idx].style.background = "rgba(92,200,255,0.14)";
+  }
+}
+
+// position along polyline by fraction of total length
+function pointAlong(coords, frac) {
+  if (!coords || !coords.length) return { x: 0, y: 0 };
+  if (coords.length === 1) return { x: coords[0].x, y: coords[0].y };
+  frac = Math.max(0, Math.min(1, frac));
+  let total = 0; const segs = [];
+  for (let i = 0; i < coords.length - 1; i++) { const d = dist(coords[i], coords[i + 1]); segs.push(d); total += d; }
+  if (total === 0) return { x: coords[0].x, y: coords[0].y };
+  let target = frac * total, acc = 0;
+  for (let i = 0; i < segs.length; i++) {
+    if (acc + segs[i] >= target) {
+      const f = segs[i] === 0 ? 0 : (target - acc) / segs[i];
+      return {
+        x: coords[i].x + (coords[i + 1].x - coords[i].x) * f,
+        y: coords[i].y + (coords[i + 1].y - coords[i].y) * f
+      };
+    }
+    acc += segs[i];
+  }
+  const last = coords[coords.length - 1];
+  return { x: last.x, y: last.y };
+}
+
+/* ---------- Export ------------------------------------------------------ */
+function exportPlan() {
+  if (!state.steps.length) { alert("Add attractions first."); return; }
+  const startMin = hmToMin(document.getElementById("startTime").value || "09:00");
+  const lines = [];
+  lines.push("MAGIC KINGDOM — RIDE SEQUENCE PLAN");
+  lines.push("Start time: " + minToHM(startMin));
+  lines.push("Walking speed: " + WALK_FT_PER_MIN + " ft/min, scale " + ftPerPx() + " ft/px");
+  lines.push(Array(49).join("="));
+  state.steps.forEach((s, i) => {
+    lines.push("");
+    lines.push((i + 1) + ". " + s.name + (s.reachable ? "" : "  [NO PATH FOUND]"));
+    lines.push("   " + minToHM(s.walkStart) + " - " + minToHM(s.walkEnd) + "  Walk to " + s.name + " (" + fmtDur(s.walk) + ")");
+    lines.push("   " + minToHM(s.waitStart) + " - " + minToHM(s.waitEnd) + "  Wait (" + fmtDur(s.wait) + ")");
+    lines.push("   " + minToHM(s.rideStart) + " - " + minToHM(s.rideEnd) + "  Ride (" + fmtDur(s.ride) + ")");
+    lines.push("   Step total: " + fmtDur(s.total));
+  });
+  const totWalk = state.steps.reduce((a, x) => a + x.walk, 0);
+  const totWait = state.steps.reduce((a, x) => a + x.wait, 0);
+  const totRide = state.steps.reduce((a, x) => a + x.ride, 0);
+  lines.push("");
+  lines.push(Array(49).join("="));
+  lines.push("TOTAL: " + fmtDur(totWalk + totWait + totRide) +
+    "  (walk " + fmtDur(totWalk) + ", wait " + fmtDur(totWait) + ", ride " + fmtDur(totRide) + ")");
+  lines.push("Finish: " + minToHM(state.steps[state.steps.length - 1].rideEnd));
+
+  const json = {
+    startTime: minToHM(startMin),
+    sequence: state.sequence.slice(),
+    steps: state.steps.map(s => ({
+      attractionId: s.attractionId, name: s.name, reachable: s.reachable,
+      walk: round1(s.walk), wait: round1(s.wait), ride: s.ride, total: round1(s.total),
+      walkStart: minToHM(s.walkStart), walkEnd: minToHM(s.walkEnd),
+      waitStart: minToHM(s.waitStart), waitEnd: minToHM(s.waitEnd),
+      rideStart: minToHM(s.rideStart), rideEnd: minToHM(s.rideEnd)
+    })),
+    totals: { walk: round1(totWalk), wait: round1(totWait), ride: round1(totRide),
+              finish: minToHM(state.steps[state.steps.length - 1].rideEnd) }
+  };
+
+  download("mk-plan.txt", lines.join("\n"), "text/plain");
+  download("mk-plan.json", JSON.stringify(json, null, 2), "application/json");
+}
+function round1(x) { return Math.round(x * 10) / 10; }
+function download(name, content, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/* ---------- Data modal -------------------------------------------------- */
+const HINTS = {
+  nodes: 'Array of { id, name?, isAttraction, x, y } — node coordinates in pixels.',
+  connections: 'Array of { from, to:[...] } — undirected graph edges (duplicates OK).',
+  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration }.',
+  waits: 'Tab-delimited: attraction_id  time_of_day(HH:MM)  avg_wait_minutes. Linearly interpolated.'
+};
+function openModal() {
+  document.getElementById("ta-nodes").value = JSON.stringify(currentNodesArray(), null, 2);
+  document.getElementById("ta-connections").value = JSON.stringify(currentConnArray(), null, 2);
+  document.getElementById("ta-attractions").value = JSON.stringify(Array.from(state.attractions.values()), null, 2);
+  document.getElementById("ta-waits").value = currentWaitsTSV();
+  document.getElementById("modalMsg").textContent = "";
+  document.getElementById("modalBg").classList.add("show");
+  setPaneHint();
+}
+function setPaneHint() {
+  const active = document.querySelector(".tab.active").dataset.tab;
+  document.getElementById("paneHint").textContent = HINTS[active];
+}
+function currentNodesArray() { return Array.from(state.nodes.values()); }
+function currentConnArray() {
+  const out = []; const seen = new Set();
+  state.adj.forEach((edges, id) => {
+    const tos = [];
+    edges.forEach(e => { const k = id + "->" + e.to; if (!seen.has(k)) { seen.add(k); tos.push(e.to); } });
+    if (tos.length) out.push({ from: id, to: tos });
+  });
+  return out;
+}
+function currentWaitsTSV() {
+  const lines = ["attraction_id\ttime_of_day\tavg_wait_minutes"];
+  state.waits.forEach((arr, id) => arr.forEach(p => lines.push(id + "\t" + minToHM(p.t) + "\t" + p.w)));
+  return lines.join("\n");
+}
+function applyData() {
+  const msg = document.getElementById("modalMsg");
+  try {
+    const nodes = JSON.parse(document.getElementById("ta-nodes").value);
+    const conns = JSON.parse(document.getElementById("ta-connections").value);
+    const attrs = JSON.parse(document.getElementById("ta-attractions").value);
+    const waits = document.getElementById("ta-waits").value;
+    if (!Array.isArray(nodes) || !Array.isArray(conns) || !Array.isArray(attrs))
+      throw new Error("Nodes, connections, attractions must be JSON arrays.");
+    buildFromData(nodes, conns, attrs, waits);
+    state.sequence = state.sequence.filter(id => state.attractions.has(id));
+    stop();
+    computeView(); refresh();
+    msg.className = "ok";
+    msg.textContent = "✓ Loaded " + nodes.length + " nodes, " + attrs.length + " attractions.";
+  } catch (e) {
+    msg.className = "err"; msg.textContent = "Error: " + e.message;
+  }
+}
+function autoDetectAndFill(text, filename) {
+  const t = text.trim();
+  if (t.charAt(0) === "[" || t.charAt(0) === "{") {
+    try {
+      const arr = JSON.parse(t);
+      const sample = Array.isArray(arr) ? arr[0] : arr;
+      if (sample && "entranceNodeId" in sample) { document.getElementById("ta-attractions").value = t; return "attractions"; }
+      if (sample && "to" in sample) { document.getElementById("ta-connections").value = t; return "connections"; }
+      if (sample && ("x" in sample) && ("isAttraction" in sample || "y" in sample)) { document.getElementById("ta-nodes").value = t; return "nodes"; }
+    } catch (e) {}
+  }
+  if (/attraction_id/.test(t) || /\t/.test(t) || (filename || "").toLowerCase().indexOf("wait") >= 0) {
+    document.getElementById("ta-waits").value = t; return "waits";
+  }
+  return null;
+}
+
+/* ---------- helpers ----------------------------------------------------- */
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+/* ---------- Wire up events ---------------------------------------------- */
+document.getElementById("playBtn").onclick = () => { playing ? pause() : play(); };
+document.getElementById("stopBtn").onclick = stop;
+document.getElementById("exportBtn").onclick = exportPlan;
+document.getElementById("clearSeq").onclick = () => { state.sequence = []; stop(); refresh(); };
+document.getElementById("startTime").onchange = () => { stop(); refresh(); };
+document.getElementById("ftPerPx").onchange = () => { stop(); refresh(); };
+
+document.getElementById("dataBtn").onclick = openModal;
+document.getElementById("closeModal").onclick = () => document.getElementById("modalBg").classList.remove("show");
+document.getElementById("applyData").onclick = applyData;
+document.getElementById("loadSample").onclick = () => { loadSample(); computeView(); refresh(); openModal(); };
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.onclick = () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    document.querySelectorAll(".pane").forEach(p => p.classList.remove("active"));
+    tab.classList.add("active");
+    document.querySelector('.pane[data-pane="' + tab.dataset.tab + '"]').classList.add("active");
+    setPaneHint();
+  };
+});
+document.getElementById("fileLoad").onchange = (e) => {
+  const files = Array.prototype.slice.call(e.target.files);
+  files.forEach(file => {
+    const r = new FileReader();
+    r.onload = () => {
+      const which = autoDetectAndFill(r.result, file.name);
+      const msg = document.getElementById("modalMsg");
+      if (which) {
+        document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === which));
+        document.querySelectorAll(".pane").forEach(p => p.classList.toggle("active", p.dataset.pane === which));
+        setPaneHint();
+        msg.className = "ok"; msg.textContent = 'Loaded "' + file.name + '" → ' + which + '. Click Apply.';
+      } else {
+        msg.className = "err"; msg.textContent = 'Could not auto-detect "' + file.name + '". Paste manually.';
+      }
+    };
+    r.readAsText(file);
+  });
+};
+document.getElementById("modalBg").addEventListener("click", e => {
+  if (e.target.id === "modalBg") e.currentTarget.classList.remove("show");
+});
+window.addEventListener("resize", resizeCanvas);
+
+/* ---------- Init -------------------------------------------------------- */
+function loadSample() {
+  buildFromData(SAMPLE.nodes, SAMPLE.connections, SAMPLE.attractions, SAMPLE.waitsTSV);
+  state.sequence = ["pirates", "mansion", "splash", "space"];
+}
+function init() {
+  loadSample();
+  resizeCanvas();
+  refresh();
+}
+init();
+</script>
+</body>
+</html>
