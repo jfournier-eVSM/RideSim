@@ -42,7 +42,16 @@ Attribute VB_Name = "VisioExport"
 ' OPTIONAL SHAPE DATA (Shape Data / Custom Properties) - all override the above:
 '   On any shape:        Prop.ID          -> use this exact id instead of auto
 '                        Prop.Name        -> JSON "name" (else omitted for nodes)
-'   On Attraction:       Prop.RideDuration-> ride minutes (else DEFAULT_RIDE)
+'   On Attraction:       Prop.RideDuration-> ride minutes (else DEFAULT_RIDE).
+'                        Also accepts Prop.Duration / RideTime / Ride / Minutes,
+'                        numeric or text ("12 min").
+'
+' SCALE BAR (sets real-world walking speed):
+'   Add two shapes named (or mastered) ScaleStart and ScaleEnd and a line
+'   between them; put the real distance in FEET as the line's text (e.g. "350").
+'   The exporter writes feet-per-pixel = feet / pixel-distance into
+'   SAMPLE.feetPerPixel, which fills the planner's ft/px box. (Distance text may
+'   instead sit on ScaleStart/ScaleEnd if you prefer.)
 '
 ' BACKGROUND MAP
 '   Put your map image on a layer named "Bck" (Home > Layers) and draw the nodes
@@ -71,6 +80,7 @@ Private mPageH As Double                   ' active page height (inches), for Y-
 Private mNodeMap As Collection             ' "k"&Shape.ID -> Array(id, cxPx, cyPx, role)
 Private mAttrMap As Collection             ' "k"&Shape.ID -> attractionId
 Private mRole As Collection                ' "k"&Shape.ID -> role (node-like shapes)
+Private mScaleIds As Collection            ' "k"&Shape.ID of ScaleStart/ScaleEnd shapes
 Private mWarnings As Collection
 
 '------------------------------------------------------------------------------
@@ -83,6 +93,7 @@ Public Sub ExportRideSim()
     Set mNodeMap = New Collection
     Set mAttrMap = New Collection
     Set mRole = New Collection
+    Set mScaleIds = New Collection
     Set mWarnings = New Collection
 
     Dim shp As Visio.Shape, v As Variant
@@ -101,6 +112,7 @@ Public Sub ExportRideSim()
     For Each shp In pg.Shapes
         Dim role As String: role = MasterRole(shp)
         If role <> "" Then mRole.Add role, "k" & shp.id
+        If ScaleRole(shp) <> "" Then mScaleIds.Add True, "k" & shp.id
         Select Case role
             Case "Node":     nodeShapes.Add shp
             Case "Entrance": entShapes.Add shp
@@ -123,7 +135,9 @@ Public Sub ExportRideSim()
             Dim bShp As Visio.Shape, eShp As Visio.Shape
             Set bShp = Nothing: Set eShp = Nothing
             GetEnds shp, bShp, eShp
-            If bShp Is Nothing Or eShp Is Nothing Then
+            If IsScaleLine(bShp, eShp) Then
+                ' the scale bar's line - measured separately, not a walkway edge
+            ElseIf bShp Is Nothing Or eShp Is Nothing Then
                 Warn "Line not glued at both ends, skipped: " & shp.NameU
             Else
                 Dim kb As Visio.Shape, ke As Visio.Shape
@@ -236,15 +250,23 @@ Public Sub ExportRideSim()
     Next
 
     ' --- assemble blocks -----------------------------------------------------
-    Dim nodesBlock As String, connBlock As String, attrBlock As String, mapBlock As String
+    Dim nodesBlock As String, connBlock As String, attrBlock As String
+    Dim mapBlock As String, scaleBlock As String
     nodesBlock = "SAMPLE.nodes = [" & vbCrLf & nodesJson & vbCrLf & "];"
     connBlock = "SAMPLE.connections = [" & vbCrLf & connJson & vbCrLf & "];"
     attrBlock = "SAMPLE.attractions = [" & vbCrLf & attrJson & vbCrLf & "];"
     mapBlock = "SAMPLE.mapExtent = " & MapExtentJson(pg) & ";"
 
+    Dim ftPerPx As Double: ftPerPx = ComputeScale(pg)
+    If ftPerPx > 0 Then
+        scaleBlock = "SAMPLE.feetPerPixel = " & JNum(ftPerPx) & ";"
+    Else
+        scaleBlock = "SAMPLE.feetPerPixel = null;"
+    End If
+
     Dim outText As String   ' plain-text fallback (same blocks, copy/paste-able)
     outText = nodesBlock & vbCrLf & vbCrLf & connBlock & vbCrLf & vbCrLf & _
-              attrBlock & vbCrLf & vbCrLf & mapBlock & vbCrLf
+              attrBlock & vbCrLf & vbCrLf & mapBlock & vbCrLf & vbCrLf & scaleBlock & vbCrLf
     Debug.Print outText
 
     ' --- emit: patch index.html in place, else write the .txt ----------------
@@ -252,7 +274,7 @@ Public Sub ExportRideSim()
     Dim msg As String, htmlP As String, didPatch As Boolean
     htmlP = HtmlPath()
     If htmlP <> "" Then
-        If Dir$(htmlP) <> "" Then didPatch = PatchHtml(htmlP, nodesBlock, connBlock, attrBlock, mapBlock)
+        If Dir$(htmlP) <> "" Then didPatch = PatchHtml(htmlP, nodesBlock, connBlock, attrBlock, mapBlock, scaleBlock)
     End If
     If didPatch Then
         msg = "Wrote " & nodeCount & " nodes, " & connCount & " connections, " & _
@@ -281,7 +303,7 @@ Private Function HtmlPath() As String
     If HTML_PATH_OVERRIDE <> "" Then HtmlPath = HTML_PATH_OVERRIDE: Exit Function
     Dim folder As String
     On Error Resume Next
-    folder = ThisDocument.Path
+    folder = ThisDocument.path
     On Error GoTo 0
     If folder = "" Then Exit Function
     If Right$(folder, 1) <> "\" Then folder = folder & "\"
@@ -291,7 +313,7 @@ End Function
 ' Replace the text between each marker pair with its block. Returns False (and
 ' leaves the file untouched) if any marker is missing.
 Private Function PatchHtml(path As String, nodesBlock As String, connBlock As String, _
-                           attrBlock As String, mapBlock As String) As Boolean
+                           attrBlock As String, mapBlock As String, scaleBlock As String) As Boolean
     On Error GoTo fail
     Dim s As String: s = ReadTextUtf8(path)
     Dim nl As String: nl = IIf(InStr(s, vbCrLf) > 0, vbCrLf, vbLf)
@@ -300,6 +322,7 @@ Private Function PatchHtml(path As String, nodesBlock As String, connBlock As St
     s = PatchSection(s, "@RIDESIM:CONN:START", "@RIDESIM:CONN:END", Reflow(connBlock, nl), nl, ok)
     s = PatchSection(s, "@RIDESIM:ATTR:START", "@RIDESIM:ATTR:END", Reflow(attrBlock, nl), nl, ok)
     s = PatchSection(s, "@RIDESIM:MAP:START", "@RIDESIM:MAP:END", Reflow(mapBlock, nl), nl, ok)
+    s = PatchSection(s, "@RIDESIM:SCALE:START", "@RIDESIM:SCALE:END", Reflow(scaleBlock, nl), nl, ok)
     If ok Then WriteTextUtf8NoBom path, s   ' only touch the file if every marker matched
     PatchHtml = ok
     Exit Function
@@ -399,7 +422,8 @@ Private Function MapExtentJson(pg As Visio.Page) As String
     Dim minX As Double, minY As Double, maxX As Double, maxY As Double
     minX = 1E+30: minY = 1E+30: maxX = -1E+30: maxY = -1E+30
     For Each shp In pg.Shapes
-        If OnLayer(shp, BG_LAYER) Then
+        ' only the image itself - never nodes/attractions/scale shapes on the layer
+        If OnLayer(shp, BG_LAYER) And MasterRole(shp) = "" And ScaleRole(shp) = "" Then
             found = True
             Dim w As Double, h As Double, i As Long, pt As Variant
             w = CN(shp, "Width"): h = CN(shp, "Height")
@@ -433,6 +457,83 @@ Private Function OnLayer(shp As Visio.Shape, layerName As String) As Boolean
     For i = 1 To shp.LayerCount
         If LCase$(shp.Layer(i).Name) = LCase$(layerName) Then OnLayer = True: Exit Function
     Next i
+End Function
+
+' "ScaleStart" / "ScaleEnd" / "" - by master name or shape name.
+Private Function ScaleRole(shp As Visio.Shape) As String
+    On Error Resume Next
+    Dim nm As String
+    If Not shp.Master Is Nothing Then nm = LCase$(shp.Master.Name)
+    Dim nu As String: nu = LCase$(shp.NameU)
+    If nm = "scalestart" Or InStr(nu, "scalestart") > 0 Then ScaleRole = "ScaleStart": Exit Function
+    If nm = "scaleend" Or InStr(nu, "scaleend") > 0 Then ScaleRole = "ScaleEnd"
+End Function
+
+' True if a line's two endpoints are the scale-bar shapes (either direction).
+Private Function IsScaleLine(b As Visio.Shape, e As Visio.Shape) As Boolean
+    If b Is Nothing Or e Is Nothing Then Exit Function
+    IsScaleLine = KeyExists(mScaleIds, "k" & b.id) And KeyExists(mScaleIds, "k" & e.id)
+End Function
+
+' Feet-per-pixel from the scale bar: feet (text on the connecting line, else on
+' a scale shape) divided by the pixel distance between ScaleStart and ScaleEnd.
+Private Function ComputeScale(pg As Visio.Page) As Double
+    Dim shp As Visio.Shape, sShp As Visio.Shape, eShp As Visio.Shape
+    For Each shp In pg.Shapes
+        Select Case ScaleRole(shp)
+            Case "ScaleStart": Set sShp = shp
+            Case "ScaleEnd": Set eShp = shp
+        End Select
+    Next
+    If sShp Is Nothing Or eShp Is Nothing Then Exit Function   ' no scale bar -> 0
+
+    Dim feet As Double, ln As Visio.Shape
+    For Each shp In pg.Shapes                                   ' find the connecting line
+        If shp.OneD And MasterRole(shp) = "" Then
+            Dim b As Visio.Shape, e As Visio.Shape
+            Set b = Nothing: Set e = Nothing
+            GetEnds shp, b, e
+            If Not b Is Nothing And Not e Is Nothing Then
+                If (b.id = sShp.id And e.id = eShp.id) Or (b.id = eShp.id And e.id = sShp.id) Then
+                    Set ln = shp: Exit For
+                End If
+            End If
+        End If
+    Next
+    If Not ln Is Nothing Then feet = ParseNum(ShapeText(ln))
+    If feet <= 0 Then feet = ParseNum(ShapeText(sShp))
+    If feet <= 0 Then feet = ParseNum(ShapeText(eShp))
+    If feet <= 0 Then
+        Warn "Found ScaleStart/ScaleEnd but no distance text (feet) - scale not set."
+        Exit Function
+    End If
+
+    Dim cs As Variant, ce As Variant
+    cs = CenterPx(sShp): ce = CenterPx(eShp)
+    Dim d As Double: d = Sqr((cs(0) - ce(0)) ^ 2 + (cs(1) - ce(1)) ^ 2)
+    If d <= 0 Then Exit Function
+    ComputeScale = feet / d
+End Function
+
+' First number in a string ("350 ft" -> 350, "12.5" -> 12.5). 0 if none.
+Private Function ParseNum(ByVal s As String) As Double
+    Dim i As Long, ch As String, num As String, seenDot As Boolean
+    For i = 1 To Len(s)
+        ch = Mid$(s, i, 1)
+        If ch >= "0" And ch <= "9" Then
+            num = num & ch
+        ElseIf ch = "." And Not seenDot And num <> "" Then
+            num = num & ".": seenDot = True
+        ElseIf num <> "" Then
+            Exit For
+        End If
+    Next i
+    If num <> "" Then ParseNum = val(num)   ' Val uses "." regardless of locale
+End Function
+
+' Number -> locale-safe JSON literal (always "." decimal, no scientific).
+Private Function JNum(d As Double) As String
+    JNum = Replace(Format$(d, "0.######"), ",", ".")
 End Function
 
 ' Build the JSON points list for a connector, ordered begin(fromId) -> end.
@@ -640,12 +741,23 @@ Private Function LessNode(ax As Double, ay As Double, bx As Double, by As Double
     If Abs(ax - bx) > EPS Then LessNode = (ax < bx) Else LessNode = (ay > by)
 End Function
 
+' Ride duration (minutes) from the attraction's Shape Data. Tries common field
+' names; numeric or text ("12 min") both work. Falls back to DEFAULT_RIDE.
 Private Function RideDur(shp As Visio.Shape) As Double
     On Error Resume Next
-    If shp.CellExistsU("Prop.RideDuration", 0) Then
-        RideDur = shp.CellsU("Prop.RideDuration").ResultIU
-        If RideDur > 0 Then Exit Function
-    End If
+    Dim names As Variant: names = Array("RideDuration", "Duration", "RideTime", "Ride", "Minutes")
+    Dim i As Long, cell As String, v As Double
+    Dim Row As Long
+    For Row = 0 To shp.RowCount(visSectionProp) - 1
+        For i = LBound(names) To UBound(names)
+            cell = "Prop." & names(i)
+            If shp.CellsSRC(visSectionProp, Row, 2).ResultStr(visNone) Like names(i) Then
+                v = shp.CellsSRC(visSectionProp, Row, 0).Result(visNone)                 ' numeric shape data
+                If v <= 0 Then v = ParseNum(shp.CellsU(cell).ResultStr(""))  ' text shape data
+                If v > 0 Then RideDur = v: Exit Function
+            End If
+        Next i
+    Next Row
     RideDur = DEFAULT_RIDE
 End Function
 
@@ -740,3 +852,7 @@ Private Function WriteOut(text As String) As String
     Close #f
     WriteOut = path
 End Function
+
+
+
+
