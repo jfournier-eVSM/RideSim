@@ -23,9 +23,12 @@ Attribute VB_Name = "VisioExport"
 '          edges. An Attraction must connect ONLY to Entrance/Exit shapes -
 '          never directly into the walkway graph.
 '   4. Run:  Tools > Macros > VisioExport.ExportRideSim   (or F5 in the editor).
-'   5. Output is written to "ridesim_export.txt" next to the .vsdx (or your
-'      Desktop if unsaved) AND printed to the Immediate window (Ctrl+G).
-'      Copy each block into index.html's Data panel (or the SAMPLE arrays).
+'   5. The macro writes the data straight into index.html, replacing the text
+'      between the // @RIDESIM:*:START / :END markers (the three SAMPLE arrays).
+'      It looks for index.html next to the saved .vsdx; set HTML_PATH_OVERRIDE
+'      below to point elsewhere. Just refresh the browser afterwards.
+'      If index.html / its markers aren't found, it falls back to writing
+'      "ridesim_export.txt" for manual paste. Output also goes to Ctrl+G.
 '
 ' AUTO-NAMING (no shape data needed - just set shape TEXT):
 '   Attraction : id = sanitized attraction TEXT (e.g. "Pirates" -> pirates).
@@ -41,16 +44,28 @@ Attribute VB_Name = "VisioExport"
 '                        Prop.Name        -> JSON "name" (else omitted for nodes)
 '   On Attraction:       Prop.RideDuration-> ride minutes (else DEFAULT_RIDE)
 '
+' BACKGROUND MAP
+'   Put your map image on a layer named "Bck" (Home > Layers) and draw the nodes
+'   over it. The exporter writes that shape's bounding box as SAMPLE.mapExtent,
+'   and the planner stretches background.png to exactly that rectangle - so any
+'   image resolution lines up automatically (no manual aligning). Export the
+'   same image as background.png next to index.html.
+'
 ' COORDINATES
 '   Visio is inches, origin bottom-left, Y up. We emit pixels, origin top-left,
-'   Y down (screen space), so node coords line up with a page exported to PNG.
-'   Set PPI below to the DPI you export background.png at (Visio default = 96).
+'   Y down (screen space). Node coords are relative to the Bck map extent, so
+'   PPI only sets overall resolution (any value works; Visio default = 96).
 '==============================================================================
 Option Explicit
 
 Private Const PPI As Double = 96#          ' pixels per inch (match your PNG export DPI)
 Private Const DEFAULT_RIDE As Double = 5#  ' fallback ride duration (minutes)
 Private Const OUT_FILE As String = "ridesim_export.txt"
+' Full path to index.html. Leave "" to look next to the saved Visio document.
+Private Const HTML_PATH_OVERRIDE As String = ""
+' Layer holding the background map image; its extent defines where the
+' background.png is stretched in node coordinates (nodes sit inside it).
+Private Const BG_LAYER As String = "Bck"
 
 Private mPageH As Double                   ' active page height (inches), for Y-flip
 Private mNodeMap As Collection             ' "k"&Shape.ID -> Array(id, cxPx, cyPx, role)
@@ -220,25 +235,119 @@ Public Sub ExportRideSim()
         attrCount = attrCount + 1
     Next
 
-    ' --- assemble + emit -----------------------------------------------------
-    Dim outText As String
-    outText = "// ===== NODES =====" & vbCrLf & "[" & vbCrLf & nodesJson & vbCrLf & "]" & vbCrLf & vbCrLf & _
-              "// ===== CONNECTIONS =====" & vbCrLf & "[" & vbCrLf & connJson & vbCrLf & "]" & vbCrLf & vbCrLf & _
-              "// ===== ATTRACTIONS =====" & vbCrLf & "[" & vbCrLf & attrJson & vbCrLf & "]" & vbCrLf
+    ' --- assemble blocks -----------------------------------------------------
+    Dim nodesBlock As String, connBlock As String, attrBlock As String, mapBlock As String
+    nodesBlock = "SAMPLE.nodes = [" & vbCrLf & nodesJson & vbCrLf & "];"
+    connBlock = "SAMPLE.connections = [" & vbCrLf & connJson & vbCrLf & "];"
+    attrBlock = "SAMPLE.attractions = [" & vbCrLf & attrJson & vbCrLf & "];"
+    mapBlock = "SAMPLE.mapExtent = " & MapExtentJson(pg) & ";"
 
+    Dim outText As String   ' plain-text fallback (same blocks, copy/paste-able)
+    outText = nodesBlock & vbCrLf & vbCrLf & connBlock & vbCrLf & vbCrLf & _
+              attrBlock & vbCrLf & vbCrLf & mapBlock & vbCrLf
     Debug.Print outText
-    Dim savedTo As String: savedTo = WriteOut(outText)
 
-    Dim msg As String
-    msg = "Exported " & nodeCount & " nodes, " & connCount & " connections, " & _
-          attrCount & " attractions." & vbCrLf & "Saved to: " & savedTo
+    ' --- emit: patch index.html in place, else write the .txt ----------------
+    '   (VBA And is not short-circuit, so guard with nested Ifs.)
+    Dim msg As String, htmlP As String, didPatch As Boolean
+    htmlP = HtmlPath()
+    If htmlP <> "" Then
+        If Dir$(htmlP) <> "" Then didPatch = PatchHtml(htmlP, nodesBlock, connBlock, attrBlock, mapBlock)
+    End If
+    If didPatch Then
+        msg = "Wrote " & nodeCount & " nodes, " & connCount & " connections, " & _
+              attrCount & " attractions into:" & vbCrLf & htmlP & vbCrLf & _
+              "Refresh the page in your browser."
+    Else
+        Dim savedTo As String: savedTo = WriteOut(outText)
+        msg = "Exported " & nodeCount & " nodes, " & connCount & " connections, " & _
+              attrCount & " attractions." & vbCrLf & _
+              "Could not patch index.html (not found or markers missing), wrote:" & vbCrLf & _
+              savedTo & vbCrLf & "Paste the blocks in manually."
+    End If
+
     If mWarnings.Count > 0 Then
         Dim wv As Variant, wAll As String
         For Each wv In mWarnings: wAll = wAll & vbCrLf & " - " & wv: Next
         Debug.Print "WARNINGS:" & wAll
-        msg = msg & vbCrLf & vbCrLf & mWarnings.Count & " warning(s) - see Immediate window."
+        msg = msg & vbCrLf & vbCrLf & mWarnings.Count & " warning(s) - see Immediate window (Ctrl+G)."
     End If
     MsgBox msg, vbInformation, "RideSim Export"
+End Sub
+
+'--------------------------- index.html patching ------------------------------
+' Path to index.html: HTML_PATH_OVERRIDE if set, else next to the Visio doc.
+Private Function HtmlPath() As String
+    If HTML_PATH_OVERRIDE <> "" Then HtmlPath = HTML_PATH_OVERRIDE: Exit Function
+    Dim folder As String
+    On Error Resume Next
+    folder = ThisDocument.Path
+    On Error GoTo 0
+    If folder = "" Then Exit Function
+    If Right$(folder, 1) <> "\" Then folder = folder & "\"
+    HtmlPath = folder & "index.html"
+End Function
+
+' Replace the text between each marker pair with its block. Returns False (and
+' leaves the file untouched) if any marker is missing.
+Private Function PatchHtml(path As String, nodesBlock As String, connBlock As String, _
+                           attrBlock As String, mapBlock As String) As Boolean
+    On Error GoTo fail
+    Dim s As String: s = ReadTextUtf8(path)
+    Dim nl As String: nl = IIf(InStr(s, vbCrLf) > 0, vbCrLf, vbLf)
+    Dim ok As Boolean: ok = True
+    s = PatchSection(s, "@RIDESIM:NODES:START", "@RIDESIM:NODES:END", Reflow(nodesBlock, nl), nl, ok)
+    s = PatchSection(s, "@RIDESIM:CONN:START", "@RIDESIM:CONN:END", Reflow(connBlock, nl), nl, ok)
+    s = PatchSection(s, "@RIDESIM:ATTR:START", "@RIDESIM:ATTR:END", Reflow(attrBlock, nl), nl, ok)
+    s = PatchSection(s, "@RIDESIM:MAP:START", "@RIDESIM:MAP:END", Reflow(mapBlock, nl), nl, ok)
+    If ok Then WriteTextUtf8NoBom path, s   ' only touch the file if every marker matched
+    PatchHtml = ok
+    Exit Function
+fail:
+    Warn "Could not patch index.html: " & Err.Description
+    PatchHtml = False
+End Function
+
+' Keep the two marker lines; replace only the lines strictly between them.
+Private Function PatchSection(s As String, startTok As String, endTok As String, _
+                              block As String, nl As String, ByRef ok As Boolean) As String
+    Dim p1 As Long, p2 As Long
+    p1 = InStr(s, startTok): p2 = InStr(s, endTok)
+    If p1 = 0 Or p2 = 0 Or p2 < p1 Then
+        Warn "Marker not found in index.html: " & startTok & " .. " & endTok
+        ok = False: PatchSection = s: Exit Function
+    End If
+    Dim eol As Long: eol = InStr(p1, s, vbLf)        ' end of the start-marker line
+    If eol = 0 Then ok = False: PatchSection = s: Exit Function
+    Dim lineStart As Long: lineStart = InStrRev(s, vbLf, p2) + 1  ' start of end-marker line
+    PatchSection = Left$(s, eol) & block & nl & Mid$(s, lineStart)
+End Function
+
+Private Function Reflow(block As String, nl As String) As String
+    Reflow = Replace(block, vbCrLf, nl)
+End Function
+
+' UTF-8 read/write (preserves emoji, em-dashes, etc.); write without BOM.
+Private Function ReadTextUtf8(path As String) As String
+    Dim st As Object: Set st = CreateObject("ADODB.Stream")
+    st.Type = 2: st.Charset = "utf-8": st.Open
+    st.LoadFromFile path
+    ReadTextUtf8 = st.ReadText
+    st.Close
+End Function
+
+Private Sub WriteTextUtf8NoBom(path As String, ByVal text As String)
+    Dim st As Object: Set st = CreateObject("ADODB.Stream")
+    st.Type = 2: st.Charset = "utf-8": st.Open
+    st.WriteText text
+    st.Position = 0: st.Type = 1: st.Position = 3   ' skip the 3-byte UTF-8 BOM
+    Dim payload: payload = st.Read
+    st.Close
+    Dim bin As Object: Set bin = CreateObject("ADODB.Stream")
+    bin.Type = 1: bin.Open
+    bin.Write payload
+    bin.SaveToFile path, 2                           ' adSaveCreateOverWrite
+    bin.Close
 End Sub
 
 '============================ helpers =========================================
@@ -281,6 +390,49 @@ Private Function LocalToPagePx(shp As Visio.Shape, xl As Double, yl As Double) A
     Dim xp As Double, yp As Double
     xp = pinx + xr: yp = piny + yr
     LocalToPagePx = Array(Round(xp * PPI), Round((mPageH - yp) * PPI))
+End Function
+
+' Bounding box (in node px) of the shape(s) on the BG_LAYER layer = where the
+' background.png is stretched. Returns "{ x, y, w, h }" or "null" if none.
+Private Function MapExtentJson(pg As Visio.Page) As String
+    Dim shp As Visio.Shape, found As Boolean
+    Dim minX As Double, minY As Double, maxX As Double, maxY As Double
+    minX = 1E+30: minY = 1E+30: maxX = -1E+30: maxY = -1E+30
+    For Each shp In pg.Shapes
+        If OnLayer(shp, BG_LAYER) Then
+            found = True
+            Dim w As Double, h As Double, i As Long, pt As Variant
+            w = CN(shp, "Width"): h = CN(shp, "Height")
+            Dim corners(0 To 3) As Variant
+            corners(0) = LocalToPagePx(shp, 0, 0)
+            corners(1) = LocalToPagePx(shp, w, 0)
+            corners(2) = LocalToPagePx(shp, w, h)
+            corners(3) = LocalToPagePx(shp, 0, h)
+            For i = 0 To 3
+                pt = corners(i)
+                If pt(0) < minX Then minX = pt(0)
+                If pt(0) > maxX Then maxX = pt(0)
+                If pt(1) < minY Then minY = pt(1)
+                If pt(1) > maxY Then maxY = pt(1)
+            Next i
+        End If
+    Next shp
+    If Not found Then
+        Warn "No shape on layer '" & BG_LAYER & "' - map extent not exported (background won't auto-align)."
+        MapExtentJson = "null"
+    Else
+        MapExtentJson = "{ ""x"": " & CLng(minX) & ", ""y"": " & CLng(minY) & _
+            ", ""w"": " & CLng(maxX - minX) & ", ""h"": " & CLng(maxY - minY) & " }"
+    End If
+End Function
+
+' True if a shape belongs to a layer with the given name.
+Private Function OnLayer(shp As Visio.Shape, layerName As String) As Boolean
+    On Error Resume Next
+    Dim i As Long
+    For i = 1 To shp.LayerCount
+        If LCase$(shp.Layer(i).Name) = LCase$(layerName) Then OnLayer = True: Exit Function
+    Next i
 End Function
 
 ' Build the JSON points list for a connector, ordered begin(fromId) -> end.
