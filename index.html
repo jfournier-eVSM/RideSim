@@ -196,6 +196,7 @@
     <label class="ctl">Map <input type="range" id="bgOpacity" min="0" max="100" value="100" style="width:70px" title="Background image opacity"></label>
     <button id="bgAdjustBtn" title="Drag to move the map, scroll to scale it, to align it with the nodes">⤢ Align Map</button>
     <button id="bgFitBtn" title="Scale &amp; center the map over the nodes as a starting point">Fit</button>
+    <button id="graphToggle" title="Show/hide the node + path network (route stays visible)">◉ Graph</button>
     <label class="ctl">Speed
       <select id="animSpeed" class="speed">
         <option value="20">Fast (20 min/s)</option>
@@ -446,7 +447,7 @@ SAMPLE.nodes = [
   { "id": "tron_in", "isAttraction": true, "x": 1633, "y": 506 },
   { "id": "meet_mickey_in", "isAttraction": true, "x": 1045, "y": 1163 },
   { "id": "train_station_in", "isAttraction": true, "x": 916, "y": 1253 },
-  { "id": "exit_in", "isAttraction": true, "x": 996, "y": 1310 },
+  { "id": "start_in", "isAttraction": true, "x": 996, "y": 1310 },
   { "id": "belle_in", "isAttraction": true, "x": 1092, "y": 156 },
   { "id": "teacups_in", "isAttraction": true, "x": 1270, "y": 416 },
   { "id": "water_fountain_in", "isAttraction": true, "x": 931, "y": 674 },
@@ -481,7 +482,7 @@ SAMPLE.nodes = [
   { "id": "tron_out", "isAttraction": true, "x": 1633, "y": 440 },
   { "id": "meet_mickey_out", "isAttraction": true, "x": 1087, "y": 1142 },
   { "id": "train_station_out", "isAttraction": true, "x": 1027, "y": 1250 },
-  { "id": "exit_out", "isAttraction": true, "x": 1003, "y": 1325 },
+  { "id": "start_out", "isAttraction": true, "x": 1003, "y": 1325 },
   { "id": "belle_out", "isAttraction": true, "x": 1033, "y": 188 },
   { "id": "teacups_out", "isAttraction": true, "x": 1285, "y": 484 },
   { "id": "water_fountain_out", "isAttraction": true, "x": 911, "y": 684 }
@@ -765,7 +766,7 @@ SAMPLE.attractions = [
   { "id": "meet_mickey", "name": "Meet Mickey", "entranceNodeId": "meet_mickey_in", "exitNodeId": "meet_mickey_out", "displayLocation": { "x": 1072, "y": 1157 }, "rideDuration": 5 },
   { "id": "train_station", "name": "Train Station", "entranceNodeId": "train_station_in", "exitNodeId": "train_station_out", "displayLocation": { "x": 973, "y": 1259 }, "rideDuration": 5 },
   { "id": "monsters", "name": "Monsters", "entranceNodeId": "monsters_in", "exitNodeId": "monsters_out", "displayLocation": { "x": 1312, "y": 876 }, "rideDuration": 5 },
-  { "id": "exit", "name": "Exit", "entranceNodeId": "exit_in", "exitNodeId": "exit_out", "displayLocation": { "x": 973, "y": 1325 }, "rideDuration": 0 },
+  { "id": "start", "name": "Start", "entranceNodeId": "start_in", "exitNodeId": "start_out", "displayLocation": { "x": 973, "y": 1325 }, "rideDuration": 0 },
   { "id": "water_fountain", "name": "Water Fountain", "entranceNodeId": "water_fountain_in", "exitNodeId": "water_fountain_out", "displayLocation": { "x": 916, "y": 668 }, "rideDuration": 1 }
 ];
 // @RIDESIM:ATTR:END
@@ -951,7 +952,11 @@ function interpWait(attractionId, timeMin) {
 }
 
 /* ---------- Sequence simulation ----------------------------------------- */
-function startNode() { return state.nodes.has("exit") ? "exit" : (state.nodes.keys().next().value); }
+function startNode() {
+  if (state.nodes.has("start")) return "start";   // a node named "Start" in Visio
+  if (state.nodes.has("Exit")) return "Exit";
+  return state.nodes.keys().next().value;
+}
 
 function computeSequence() {
   const startMin = hmToMin(document.getElementById("startTime").value || "09:00");
@@ -1000,6 +1005,7 @@ let view = { scale: 1, ox: 0, oy: 0 };
 // (scale + offset), so any-resolution image can be aligned to the nodes.
 // Persisted to localStorage so alignment survives a refresh.
 const bg = Object.assign({ scale: 1, offX: 0, offY: 0, opacity: 1 }, loadBg());
+let showGraph = localStorage.getItem("ridesim.showGraph") !== "0"; // node/edge network visibility
 const bgImg = new Image();
 let bgReady = false;
 bgImg.onload = () => { bgReady = true; applyMapExtent(); computeView(); draw(); };
@@ -1131,21 +1137,23 @@ function draw(marker) {
     }
   }
 
-  // connections
-  ctx.lineWidth = 2; ctx.strokeStyle = "#2b3a57";
-  const drawn = new Set();
-  state.adj.forEach((edges, id) => {
-    const n = state.nodes.get(id);
-    edges.forEach(e => {
-      const key = id < e.to ? id + e.to : e.to + id;
-      if (drawn.has(key)) return; drawn.add(key);
-      const m = state.nodes.get(e.to);
-      const pts = (e.points && e.points.length >= 2) ? e.points : [n, m];
-      ctx.beginPath();
-      pts.forEach((p, i) => { i ? ctx.lineTo(tx(p.x), ty(p.y)) : ctx.moveTo(tx(p.x), ty(p.y)); });
-      ctx.stroke();
+  // connections (part of the graph — hidden when graph is toggled off)
+  if (showGraph) {
+    ctx.lineWidth = 2; ctx.strokeStyle = "#2b3a57";
+    const drawn = new Set();
+    state.adj.forEach((edges, id) => {
+      const n = state.nodes.get(id);
+      edges.forEach(e => {
+        const key = id < e.to ? id + e.to : e.to + id;
+        if (drawn.has(key)) return; drawn.add(key);
+        const m = state.nodes.get(e.to);
+        const pts = (e.points && e.points.length >= 2) ? e.points : [n, m];
+        ctx.beginPath();
+        pts.forEach((p, i) => { i ? ctx.lineTo(tx(p.x), ty(p.y)) : ctx.moveTo(tx(p.x), ty(p.y)); });
+        ctx.stroke();
+      });
     });
-  });
+  }
 
   // faint full-sequence routes
   state.steps.forEach(s => drawPath(s.routeCoords, "rgba(92,200,255,0.16)", 3, false));
@@ -1156,11 +1164,13 @@ function draw(marker) {
   if (state.hoverPath)
     drawPath(state.hoverPath, "rgba(255,204,77,0.55)", 3, false);
 
-  // junction nodes
-  state.nodes.forEach(n => {
-    if (n.isAttraction) return;
-    ctx.beginPath(); ctx.arc(tx(n.x), ty(n.y), 3.5, 0, 7); ctx.fillStyle = "#46557a"; ctx.fill();
-  });
+  // junction nodes (part of the graph — hidden when graph is toggled off)
+  if (showGraph) {
+    state.nodes.forEach(n => {
+      if (n.isAttraction) return;
+      ctx.beginPath(); ctx.arc(tx(n.x), ty(n.y), 3.5, 0, 7); ctx.fillStyle = "#46557a"; ctx.fill();
+    });
+  }
 
   // attractions
   state.attractions.forEach(a => {
@@ -1204,7 +1214,9 @@ function drawPath(coords, color, lw, bright) {
 function renderAttrList() {
   const el = document.getElementById("attrList");
   el.innerHTML = "";
-  state.attractions.forEach(a => {
+  const sorted = Array.from(state.attractions.values())
+    .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, undefined, { sensitivity: "base", numeric: true }));
+  sorted.forEach(a => {
     const div = document.createElement("div");
     div.className = "attr-item";
     div.innerHTML = '<span class="dot"></span><span class="nm">' + esc(a.name) +
@@ -1670,6 +1682,13 @@ document.getElementById("bgOpacity").oninput = (e) => {
 };
 document.getElementById("bgAdjustBtn").onclick = toggleBgAdjust;
 document.getElementById("bgFitBtn").onclick = bgFit;
+function setGraphToggleUI() { document.getElementById("graphToggle").classList.toggle("active", showGraph); }
+document.getElementById("graphToggle").onclick = () => {
+  showGraph = !showGraph;
+  localStorage.setItem("ridesim.showGraph", showGraph ? "1" : "0");
+  setGraphToggleUI(); draw();
+};
+setGraphToggleUI();
 canvas.addEventListener("mousedown", bgDown);
 window.addEventListener("mousemove", bgMove);
 window.addEventListener("mouseup", bgUp);
@@ -1726,7 +1745,7 @@ function loadSample() {
   if (typeof SAMPLE.feetPerPixel === "number" && SAMPLE.feetPerPixel > 0) {
     document.getElementById("ftPerPx").value = Math.round(SAMPLE.feetPerPixel * 1000) / 1000;
   }
-  state.sequence = ["pirates", "mansion", "splash", "space"];
+  state.sequence = [];
   applyMapExtent();
 }
 function init() {

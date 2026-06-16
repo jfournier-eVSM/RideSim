@@ -37,6 +37,8 @@ Attribute VB_Name = "VisioExport"
 '   Node       : set its TEXT to the LAND it sits in (e.g. "Adventureland").
 '                id = <land><n>, numbered left->right then bottom->top
 '                (e.g. adventureland1, adventureland2 ...). Blank text -> node1..
+'                A Node whose TEXT is "Start" gets id "start" and is used as the
+'                planner's starting location (where the day begins).
 '   Ids are forced unique; a clash gets _2, _3 appended.
 '
 ' OPTIONAL SHAPE DATA (Shape Data / Custom Properties) - all override the above:
@@ -180,8 +182,13 @@ Public Sub ExportRideSim()
     For Each v In ordered
         Set shp = v
         Dim land As String: land = Sanitize(ShapeText(shp))
-        If land = "" Then land = "node"
-        Dim nid As String: nid = UniqueId(land & NextCount(landCount, land), usedNode)
+        Dim nid As String
+        If land = "start" Then            ' a node named "Start" -> id "start" (planner's origin)
+            nid = UniqueId("start", usedNode)
+        Else
+            If land = "" Then land = "node"
+            nid = UniqueId(land & NextCount(landCount, land), usedNode)
+        End If
         Dim cc As Variant: cc = CenterPx(shp)
         mNodeMap.Add Array(nid, cc(0), cc(1), "Node"), "k" & shp.id
         If nodeCount > 0 Then nodesJson = nodesJson & "," & vbCrLf
