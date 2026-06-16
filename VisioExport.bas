@@ -162,7 +162,8 @@ Public Sub ExportRideSim()
 
     For Each v In entShapes
         Set shp = v
-        Dim eaid As String: eaid = IIf(KeyExists(entOf, "k" & shp.ID), entOf("k" & shp.ID), "")
+        Dim eaid As String: eaid = ""
+        If KeyExists(entOf, "k" & shp.ID) Then eaid = entOf("k" & shp.ID)
         Dim eid As String: eid = NodeIdForRole(shp, "Entrance", eaid, "_in", usedNode)
         Dim ec As Variant: ec = CenterPx(shp)
         mNodeMap.Add Array(eid, ec(0), ec(1), "Entrance"), "k" & shp.ID
@@ -174,7 +175,8 @@ Public Sub ExportRideSim()
 
     For Each v In exitShapes
         Set shp = v
-        Dim xaid As String: xaid = IIf(KeyExists(exitOf, "k" & shp.ID), exitOf("k" & shp.ID), "")
+        Dim xaid As String: xaid = ""
+        If KeyExists(exitOf, "k" & shp.ID) Then xaid = exitOf("k" & shp.ID)
         Dim xid As String: xid = NodeIdForRole(shp, "Exit", xaid, "_out", usedNode)
         Dim xc As Variant: xc = CenterPx(shp)
         mNodeMap.Add Array(xid, xc(0), xc(1), "Exit"), "k" & shp.ID
