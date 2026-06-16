@@ -122,6 +122,12 @@
     display: none; pointer-events: none; white-space: nowrap;
   }
   .canvas-wrap.bgadjust .bg-readout { display: block; }
+  .seg-tip {
+    position: fixed; z-index: 20; pointer-events: none; display: none;
+    background: rgba(16,22,36,.95); border: 1px solid var(--walk); border-radius: 7px;
+    padding: 5px 9px; font-size: 12px; white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,.45);
+  }
+  .seg-tip b { color: var(--walk); }
   .capture-panel {
     position: absolute; top: 12px; right: 12px; width: 270px; flex-direction: column; gap: 8px;
     background: rgba(16,22,36,.94); border: 1px solid var(--border); border-radius: 10px;
@@ -197,6 +203,7 @@
     <button id="bgAdjustBtn" title="Drag to move the map, scroll to scale it, to align it with the nodes">⤢ Align Map</button>
     <button id="bgFitBtn" title="Scale &amp; center the map over the nodes as a starting point">Fit</button>
     <button id="graphToggle" title="Show/hide the node + path network (route stays visible)">◉ Graph</button>
+    <button id="planToggle" title="Highlight the day's route with direction arrows">🗺 Plan</button>
     <label class="ctl">Speed
       <select id="animSpeed" class="speed">
         <option value="20">Fast (20 min/s)</option>
@@ -227,6 +234,7 @@
       <div class="nowplaying" id="nowPlaying"></div>
       <div class="coord-readout" id="coordReadout">move over the map…</div>
       <div class="bg-readout" id="bgReadout"></div>
+      <div class="seg-tip" id="segTip"></div>
       <div class="capture-panel" id="capturePanel">
         <h4>Captured Nodes <span id="captureCount" style="color:var(--muted);font-weight:400">(0)</span></h4>
         <p class="cap-hint">Double-click = junction · Shift+double-click = attraction</p>
@@ -739,7 +747,13 @@ SAMPLE.connections = [
   { "from": "node20", "to": "hall_of_presidents_out", "points": [{ "x": 679, "y": 520 }, { "x": 718, "y": 535 }] },
   { "from": "hall_of_presidents_out", "to": "node23", "points": [{ "x": 718, "y": 535 }, { "x": 745, "y": 592 }] },
   { "from": "node19", "to": "hall_of_presidents_out", "points": [{ "x": 673, "y": 560 }, { "x": 718, "y": 535 }] },
-  { "from": "meet_mickey_out", "to": "node57", "points": [{ "x": 1087, "y": 1142 }, { "x": 996, "y": 1144 }] }
+  { "from": "meet_mickey_out", "to": "node57", "points": [{ "x": 1087, "y": 1142 }, { "x": 996, "y": 1144 }] },
+  { "from": "people_mover_in", "to": "node108", "points": [{ "x": 1435, "y": 840 }, { "x": 1491, "y": 793 }] },
+  { "from": "node103", "to": "carousel_of_progress_out", "points": [{ "x": 1378, "y": 893 }, { "x": 1444, "y": 890 }] },
+  { "from": "node100", "to": "node105", "points": [{ "x": 1347, "y": 788 }, { "x": 1387, "y": 710 }] },
+  { "from": "node105", "to": "node99", "points": [{ "x": 1387, "y": 710 }, { "x": 1324, "y": 533 }] },
+  { "from": "node115", "to": "node112", "points": [{ "x": 1578, "y": 776 }, { "x": 1519, "y": 793 }] },
+  { "from": "node113", "to": "node112", "points": [{ "x": 1515, "y": 722 }, { "x": 1519, "y": 793 }] }
 ];
 // @RIDESIM:CONN:END
 
@@ -796,13 +810,13 @@ SAMPLE.waitsTSV = (function () {
   const profile = {
     pirates: [15, 25, 40, 55, 60, 55, 45, 40, 45, 50, 45, 35, 25],
     jungle:  [10, 20, 35, 45, 55, 50, 45, 40, 40, 45, 40, 30, 20],
-    splash:  [20, 40, 55, 70, 85, 80, 70, 65, 70, 75, 65, 50, 35],
-    thunder: [15, 30, 45, 60, 70, 65, 55, 50, 55, 60, 50, 40, 25],
-    mansion: [10, 20, 30, 45, 50, 50, 45, 40, 45, 50, 45, 35, 25],
+    tianas:  [20, 40, 55, 70, 85, 80, 70, 65, 70, 75, 65, 50, 35],
+    big_thunder: [15, 30, 45, 60, 70, 65, 55, 50, 55, 60, 50, 40, 25],
+    haunted: [10, 20, 30, 45, 50, 50, 45, 40, 45, 50, 45, 35, 25],
     peter:   [30, 45, 60, 75, 85, 80, 75, 70, 75, 80, 70, 55, 40],
-    small:   [5,  10, 15, 25, 30, 30, 25, 20, 25, 30, 25, 20, 15],
+    small_world:   [5,  10, 15, 25, 30, 30, 25, 20, 25, 30, 25, 20, 15],
     space:   [20, 35, 50, 65, 75, 70, 60, 55, 60, 70, 60, 45, 30],
-    buzz:    [10, 15, 25, 35, 40, 40, 35, 30, 35, 40, 35, 25, 20]
+    buzz_lightyear:    [10, 15, 25, 35, 40, 40, 35, 30, 35, 40, 35, 25, 20]
   };
   const lines = ["attraction_id\ttime_of_day\tavg_wait_minutes"];
   for (const id in profile) {
@@ -1021,6 +1035,8 @@ let view = { scale: 1, ox: 0, oy: 0 };
 const bg = Object.assign({ scale: 1, offX: 0, offY: 0, opacity: 1 }, loadBg());
 let showGraph = localStorage.getItem("ridesim.showGraph") !== "0"; // node/edge network visibility
 let hoverAttr = null; // attraction id whose label is shown on map hover
+let showPlan = localStorage.getItem("ridesim.showPlan") === "1"; // highlight the day's route
+let hoverStep = null; // step index whose walk segment is hovered (shows dist/time)
 const bgImg = new Image();
 let bgReady = false;
 bgImg.onload = () => { bgReady = true; applyMapExtent(); computeView(); draw(); };
@@ -1170,11 +1186,21 @@ function draw(marker) {
     });
   }
 
-  // faint full-sequence routes
-  state.steps.forEach(s => drawPath(s.routeCoords, "rgba(92,200,255,0.16)", 3, false));
-  // bright active route
+  // sequence routes: prominent + direction arrows when "Plan" is on, else faint
+  if (showPlan) {
+    state.steps.forEach(s => {
+      drawPath(s.routeCoords, "rgba(128,0,32,0.85)", 3, false);   // maroon
+      drawRouteArrows(s.routeCoords, "rgba(231,150,165,0.95)");   // light maroon arrows
+    });
+  } else {
+    state.steps.forEach(s => drawPath(s.routeCoords, "rgba(92,200,255,0.16)", 3, false));
+  }
+  // bright active route (animation)
   if (activeStepIndex >= 0 && state.steps[activeStepIndex])
     drawPath(state.steps[activeStepIndex].routeCoords, null, 4, true);
+  // hovered walk segment (shows its distance/time tooltip)
+  if (hoverStep !== null && state.steps[hoverStep])
+    drawPath(state.steps[hoverStep].routeCoords, null, 4, true);
   // hover preview (already a coords polyline)
   if (state.hoverPath)
     drawPath(state.hoverPath, "rgba(255,204,77,0.55)", 3, false);
@@ -1225,6 +1251,29 @@ function drawPath(coords, color, lw, bright) {
   coords.forEach((c, i) => { i ? ctx.lineTo(tx(c.x), ty(c.y)) : ctx.moveTo(tx(c.x), ty(c.y)); });
   ctx.stroke();
   ctx.shadowBlur = 0;
+}
+// Direction arrows spaced along a route polyline (shows travel order in Plan view).
+function drawRouteArrows(coords, color) {
+  if (!coords || coords.length < 2) return;
+  const pts = coords.map(c => ({ x: tx(c.x), y: ty(c.y) }));
+  const spacing = 75; let acc = spacing * 0.5;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+    if (segLen < 1e-6) continue;
+    const ux = (b.x - a.x) / segLen, uy = (b.y - a.y) / segLen;
+    while (acc <= segLen) { drawArrowhead(a.x + ux * acc, a.y + uy * acc, ux, uy, color); acc += spacing; }
+    acc -= segLen;
+  }
+}
+function drawArrowhead(x, y, ux, uy, color) {
+  const s = 6, w = 4, px = -uy, py = ux;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x + ux * s, y + uy * s);
+  ctx.lineTo(x - ux * s + px * w, y - uy * s + py * w);
+  ctx.lineTo(x - ux * s - px * w, y - uy * s - py * w);
+  ctx.closePath(); ctx.fill();
 }
 // Hover label: a readable pill centered above the attraction circle.
 function drawAttrLabel(a) {
@@ -1723,6 +1772,13 @@ document.getElementById("graphToggle").onclick = () => {
   setGraphToggleUI(); draw();
 };
 setGraphToggleUI();
+function setPlanToggleUI() { document.getElementById("planToggle").classList.toggle("active", showPlan); }
+document.getElementById("planToggle").onclick = () => {
+  showPlan = !showPlan;
+  localStorage.setItem("ridesim.showPlan", showPlan ? "1" : "0");
+  setPlanToggleUI(); draw();
+};
+setPlanToggleUI();
 canvas.addEventListener("mousedown", bgDown);
 window.addEventListener("mousemove", bgMove);
 window.addEventListener("mouseup", bgUp);
@@ -1741,13 +1797,54 @@ function attractionAt(ev) {
   });
   return best;
 }
+// distance (px) from point p to segment a-b, in screen space
+function pointSegDist(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+  let t = len2 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
+}
+// step index whose walk route the cursor is over (within ~7px), else null
+function segmentAt(ev) {
+  const rect = canvas.getBoundingClientRect();
+  const sx = ev.clientX - rect.left, sy = ev.clientY - rect.top;
+  let best = null, bestD = 7;
+  state.steps.forEach((s, i) => {
+    const c = s.routeCoords;
+    for (let k = 0; k < c.length - 1; k++) {
+      const d = pointSegDist(sx, sy, tx(c[k].x), ty(c[k].y), tx(c[k + 1].x), ty(c[k + 1].y));
+      if (d <= bestD) { bestD = d; best = i; }
+    }
+  });
+  return best;
+}
+const segTip = document.getElementById("segTip");
+function showSegTip(i, ev) {
+  const s = state.steps[i];
+  const feet = Math.round(s.distPx * ftPerPx());
+  segTip.innerHTML = "<b>Walk to " + esc(s.name) + "</b><br>" +
+    feet.toLocaleString() + " ft · " + fmtDur(s.walk) + " walk · arrive " + minToHM(s.walkEnd);
+  segTip.style.left = (ev.clientX + 14) + "px";
+  segTip.style.top = (ev.clientY + 14) + "px";
+  segTip.style.display = "block";
+}
+function hideSegTip() { segTip.style.display = "none"; }
+
 canvas.addEventListener("mousemove", (ev) => {
-  if (addMode || bgAdjust) { if (hoverAttr) { hoverAttr = null; draw(); } canvas.style.cursor = ""; return; }
+  if (addMode || bgAdjust) {
+    if (hoverAttr || hoverStep !== null) { hoverAttr = null; hoverStep = null; draw(); }
+    hideSegTip(); canvas.style.cursor = ""; return;
+  }
   const id = attractionAt(ev);
-  canvas.style.cursor = id ? "pointer" : "";
-  if (id !== hoverAttr) { hoverAttr = id; draw(); }
+  const seg = id ? null : segmentAt(ev);      // attraction circle takes priority
+  canvas.style.cursor = (id || seg !== null) ? "pointer" : "";
+  if (seg !== null) showSegTip(seg, ev); else hideSegTip();
+  if (id !== hoverAttr || seg !== hoverStep) { hoverAttr = id; hoverStep = seg; draw(); }
 });
-canvas.addEventListener("mouseleave", () => { if (hoverAttr) { hoverAttr = null; draw(); } });
+canvas.addEventListener("mouseleave", () => {
+  hideSegTip();
+  if (hoverAttr || hoverStep !== null) { hoverAttr = null; hoverStep = null; draw(); }
+});
 
 document.getElementById("addNodeBtn").onclick = toggleAddMode;
 canvas.addEventListener("mousemove", onMapMove);
