@@ -85,13 +85,13 @@ Public Sub ExportRideSim()
 
     For Each shp In pg.Shapes
         Dim role As String: role = MasterRole(shp)
-        If role <> "" Then mRole.Add role, "k" & shp.ID
+        If role <> "" Then mRole.Add role, "k" & shp.id
         Select Case role
             Case "Node":     nodeShapes.Add shp
             Case "Entrance": entShapes.Add shp
             Case "Exit":     exitShapes.Add shp
             Case "Attraction"
-                mAttrMap.Add AttrIdFor(shp, usedAttr), "k" & shp.ID
+                mAttrMap.Add AttrIdFor(shp, usedAttr), "k" & shp.id
                 attractions.Add shp
         End Select
     Next
@@ -122,14 +122,14 @@ Public Sub ExportRideSim()
                     Else
                         Set aShp = ke: Set oShp = kb
                     End If
-                    Dim aid As String: aid = mAttrMap("k" & aShp.ID)
+                    Dim aId As String: aId = mAttrMap("k" & aShp.id)
                     Select Case RoleOfShape(oShp)
-                        Case "Entrance": PutOnceKey entOf, "k" & oShp.ID, aid, "Entrance", shp
-                        Case "Exit":     PutOnceKey exitOf, "k" & oShp.ID, aid, "Exit", shp
+                        Case "Entrance": PutOnceKey entOf, "k" & oShp.id, aId, "Entrance", shp
+                        Case "Exit":     PutOnceKey exitOf, "k" & oShp.id, aId, "Exit", shp
                         Case "Attraction": Warn "Line links two Attractions, ignored: " & shp.NameU
-                        Case Else: Warn "Attraction '" & aid & "' linked to a plain Node - link Attractions only to Entrance/Exit. Ignored."
+                        Case Else: Warn "Attraction '" & aId & "' linked to a plain Node - link Attractions only to Entrance/Exit. Ignored."
                     End Select
-                ElseIf kb.ID <> ke.ID Then
+                ElseIf kb.id <> ke.id Then
                     edgeLines.Add shp           ' walkway edge; ids resolved in pass D
                 Else
                     Warn "Line skipped (both ends on same shape): " & shp.NameU
@@ -154,7 +154,7 @@ Public Sub ExportRideSim()
         If land = "" Then land = "node"
         Dim nid As String: nid = UniqueId(land & NextCount(landCount, land), usedNode)
         Dim cc As Variant: cc = CenterPx(shp)
-        mNodeMap.Add Array(nid, cc(0), cc(1), "Node"), "k" & shp.ID
+        mNodeMap.Add Array(nid, cc(0), cc(1), "Node"), "k" & shp.id
         If nodeCount > 0 Then nodesJson = nodesJson & "," & vbCrLf
         nodesJson = nodesJson & NodeJson(nid, False, cc(0), cc(1), PropStr(shp, "Name"))
         nodeCount = nodeCount + 1
@@ -163,10 +163,10 @@ Public Sub ExportRideSim()
     For Each v In entShapes
         Set shp = v
         Dim eaid As String: eaid = ""
-        If KeyExists(entOf, "k" & shp.ID) Then eaid = entOf("k" & shp.ID)
+        If KeyExists(entOf, "k" & shp.id) Then eaid = entOf("k" & shp.id)
         Dim eid As String: eid = NodeIdForRole(shp, "Entrance", eaid, "_in", usedNode)
         Dim ec As Variant: ec = CenterPx(shp)
-        mNodeMap.Add Array(eid, ec(0), ec(1), "Entrance"), "k" & shp.ID
+        mNodeMap.Add Array(eid, ec(0), ec(1), "Entrance"), "k" & shp.id
         If nodeCount > 0 Then nodesJson = nodesJson & "," & vbCrLf
         nodesJson = nodesJson & NodeJson(eid, True, ec(0), ec(1), PropStr(shp, "Name"))
         nodeCount = nodeCount + 1
@@ -176,10 +176,10 @@ Public Sub ExportRideSim()
     For Each v In exitShapes
         Set shp = v
         Dim xaid As String: xaid = ""
-        If KeyExists(exitOf, "k" & shp.ID) Then xaid = exitOf("k" & shp.ID)
+        If KeyExists(exitOf, "k" & shp.id) Then xaid = exitOf("k" & shp.id)
         Dim xid As String: xid = NodeIdForRole(shp, "Exit", xaid, "_out", usedNode)
         Dim xc As Variant: xc = CenterPx(shp)
-        mNodeMap.Add Array(xid, xc(0), xc(1), "Exit"), "k" & shp.ID
+        mNodeMap.Add Array(xid, xc(0), xc(1), "Exit"), "k" & shp.id
         If nodeCount > 0 Then nodesJson = nodesJson & "," & vbCrLf
         nodesJson = nodesJson & NodeJson(xid, True, xc(0), xc(1), PropStr(shp, "Name"))
         nodeCount = nodeCount + 1
@@ -208,7 +208,7 @@ Public Sub ExportRideSim()
     ' --- pass E: attractions (entrance/exit from association lines) --------
     For Each v In attractions
         Set shp = v
-        Dim aId As String: aId = mAttrMap("k" & shp.ID)
+        aId = mAttrMap("k" & shp.id)
         Dim ac As Variant: ac = CenterPx(shp)
         Dim entId As String, exId As String
         If KeyExists(assocEnt, aId) Then entId = assocEnt(aId) Else _
@@ -216,7 +216,7 @@ Public Sub ExportRideSim()
         If KeyExists(assocExit, aId) Then exId = assocExit(aId) Else _
             Warn "Attraction '" & aId & "' has no Exit link (draw a line from it to its Exit node)."
         If attrCount > 0 Then attrJson = attrJson & "," & vbCrLf
-        attrJson = attrJson & AttrJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp))
+        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp))
         attrCount = attrCount + 1
     Next
 
@@ -327,10 +327,10 @@ Private Function ConnectorPointsJson(shp As Visio.Shape, fromId As String) As St
 End Function
 
 ' Determine the begin/end node shapes a connector is glued to.
-Private Sub GetEnds(cn As Visio.Shape, ByRef bShp As Visio.Shape, ByRef eShp As Visio.Shape)
+Private Sub GetEnds(CN As Visio.Shape, ByRef bShp As Visio.Shape, ByRef eShp As Visio.Shape)
     On Error Resume Next
     Dim cx As Visio.Connect
-    For Each cx In cn.Connects
+    For Each cx In CN.Connects
         Dim nm As String: nm = cx.FromCell.Name
         If InStr(1, nm, "Begin", vbTextCompare) > 0 Then
             Set bShp = cx.ToSheet
@@ -346,25 +346,25 @@ Private Function ClimbKnown(shp As Visio.Shape) As Visio.Shape
     On Error Resume Next
     Dim s As Visio.Shape: Set s = shp
     Do While Not s Is Nothing
-        If KeyExists(mRole, "k" & s.ID) Or KeyExists(mAttrMap, "k" & s.ID) Then
+        If KeyExists(mRole, "k" & s.id) Or KeyExists(mAttrMap, "k" & s.id) Then
             Set ClimbKnown = s: Exit Function
         End If
         If s.ContainingShape Is Nothing Then Exit Do
-        If s.ContainingShape.ID = s.ID Then Exit Do
+        If s.ContainingShape.id = s.id Then Exit Do
         Set s = s.ContainingShape
     Loop
 End Function
 
 Private Function RoleOfShape(s As Visio.Shape) As String
-    If KeyExists(mAttrMap, "k" & s.ID) Then RoleOfShape = "Attraction": Exit Function
-    If KeyExists(mRole, "k" & s.ID) Then RoleOfShape = mRole("k" & s.ID)
+    If KeyExists(mAttrMap, "k" & s.id) Then RoleOfShape = "Attraction": Exit Function
+    If KeyExists(mRole, "k" & s.id) Then RoleOfShape = mRole("k" & s.id)
 End Function
 
 ' Final node id for a (possibly sub-) shape, after pass C assigned ids.
 Private Function FinalId(shp As Visio.Shape) As String
     Dim s As Visio.Shape: Set s = ClimbKnown(shp)
     If s Is Nothing Then Exit Function
-    If KeyExists(mNodeMap, "k" & s.ID) Then FinalId = mNodeMap("k" & s.ID)(0)
+    If KeyExists(mNodeMap, "k" & s.id) Then FinalId = mNodeMap("k" & s.id)(0)
 End Function
 
 ' Record an attraction->entrance/exit nodeId association; warn on a second.
@@ -394,7 +394,7 @@ Private Function AttrIdFor(shp As Visio.Shape, used As Collection) As String
     If p <> "" Then AttrIdFor = UniqueId(p, used): Exit Function
     Dim t As String: t = Sanitize(ShapeText(shp))
     If t <> "" Then AttrIdFor = UniqueId(t, used): Exit Function
-    AttrIdFor = UniqueId("a" & shp.ID, used)
+    AttrIdFor = UniqueId("a" & shp.id, used)
 End Function
 
 ' Entrance/Exit id: Prop.ID, else <attractionId><suffix> (e.g. pirates_in).
@@ -403,9 +403,9 @@ Private Function NodeIdForRole(shp As Visio.Shape, role As String, attrId As Str
     Dim p As String: p = PropStr(shp, "ID")
     If p <> "" Then NodeIdForRole = UniqueId(p, used): Exit Function
     If attrId <> "" Then NodeIdForRole = UniqueId(attrId & suffix, used): Exit Function
-    Warn role & " node (Shape ID " & shp.ID & ") is not linked to an Attraction - " & _
+    Warn role & " node (Shape ID " & shp.id & ") is not linked to an Attraction - " & _
          "draw a line from its Attraction shape to it."
-    NodeIdForRole = UniqueId(IIf(role = "Entrance", "ent", "ex") & shp.ID, used)
+    NodeIdForRole = UniqueId(IIf(role = "Entrance", "ent", "ex") & shp.id, used)
 End Function
 
 ' Lowercase, keep a-z0-9, turn spaces/-/_ into single underscores, trim them.
@@ -449,7 +449,7 @@ End Function
 
 Private Function ShapeText(shp As Visio.Shape) As String
     On Error Resume Next
-    ShapeText = Trim$(shp.Text)
+    ShapeText = Trim$(shp.text)
 End Function
 
 ' Order node shapes left->right, then bottom->top (for stable auto numbering).
@@ -501,7 +501,7 @@ Private Function ShapeName(shp As Visio.Shape) As String
     Dim p As String: p = PropStr(shp, "Name")
     If p <> "" Then ShapeName = p: Exit Function
     On Error Resume Next
-    ShapeName = Trim$(shp.Text)
+    ShapeName = Trim$(shp.text)
 End Function
 
 Private Function PropStr(shp As Visio.Shape, propName As String) As String
@@ -526,9 +526,9 @@ Private Function NodeJson(id As String, isAttr As Boolean, x As Variant, y As Va
     NodeJson = s
 End Function
 
-Private Function AttrJson(id As String, nm As String, entId As String, exId As String, _
+Private Function AttractionJson(id As String, nm As String, entId As String, exId As String, _
                           x As Variant, y As Variant, ride As Double) As String
-    AttrJson = "  { ""id"": """ & id & """, ""name"": """ & JStr(nm) & _
+    AttractionJson = "  { ""id"": """ & id & """, ""name"": """ & JStr(nm) & _
         """, ""entranceNodeId"": """ & entId & """, ""exitNodeId"": """ & exId & _
         """, ""displayLocation"": { ""x"": " & CLng(x) & ", ""y"": " & CLng(y) & _
         " }, ""rideDuration"": " & CLng(Round(ride)) & " }"
@@ -577,7 +577,7 @@ End Sub
 Private Function WriteOut(text As String) As String
     Dim folder As String
     On Error Resume Next
-    folder = ThisDocument.Path
+    folder = ThisDocument.path
     On Error GoTo 0
     If folder = "" Then folder = Environ$("USERPROFILE") & "\Desktop\"
     If Right$(folder, 1) <> "\" Then folder = folder & "\"
