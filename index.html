@@ -273,7 +273,7 @@
       <div class="map-legend">
         <div class="row"><span class="swatch" style="background:var(--walk)"></span> Walk path</div>
         <div class="row"><span class="swatch" style="background:var(--accent2);width:10px;height:10px;border-radius:50%"></span> Attraction</div>
-        <div class="row"><span class="swatch" style="background:#46557a;width:8px;height:8px;border-radius:50%"></span> Path junction</div>
+        <div class="row"><span class="swatch" style="background:#46557a;width:5px;height:5px;border-radius:50%"></span> Path junction</div>
       </div>
     </div>
   </div>
@@ -1234,7 +1234,7 @@ function draw(marker) {
   if (showGraph) {
     state.nodes.forEach(n => {
       if (n.isAttraction) return;
-      ctx.beginPath(); ctx.arc(tx(n.x), ty(n.y), 3.5, 0, 7); ctx.fillStyle = "#46557a"; ctx.fill();
+      ctx.beginPath(); ctx.arc(tx(n.x), ty(n.y), 1.5, 0, 7); ctx.fillStyle = "#46557a"; ctx.fill();
     });
   }
 
