@@ -1054,6 +1054,16 @@ const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
 let view = { scale: 1, ox: 0, oy: 0 };
 
+// On phones the map occupies far less screen space, so the fixed-size
+// attraction markers look oversized and overlap. Shrink them on the same
+// breakpoint the layout uses (re-evaluated each draw, so rotate/resize updates).
+const mobileMQ = window.matchMedia("(max-width: 820px)");
+function attrSize() {
+  return mobileMQ.matches
+    ? { r: 5, hot: 6.5, font: 8 }
+    : { r: 8, hot: 10,  font: 10 };
+}
+
 // Background image placed in map space via an independent transform
 // (scale + offset), so any-resolution image can be aligned to the nodes.
 // Persisted to localStorage so alignment survives a refresh.
@@ -1239,16 +1249,17 @@ function draw(marker) {
   }
 
   // attractions (names shown on hover only — see drawAttrLabel)
+  const sz = attrSize();
   state.attractions.forEach(a => {
     const inSeq = state.sequence.indexOf(a.id);
     const loc = a.displayLocation || state.nodes.get(a.entranceNodeId);
     const X = tx(loc.x), Y = ty(loc.y);
     const hot = a.id === hoverAttr;
-    ctx.beginPath(); ctx.arc(X, Y, hot ? 10 : 8, 0, 7);
+    ctx.beginPath(); ctx.arc(X, Y, hot ? sz.hot : sz.r, 0, 7);
     ctx.fillStyle = inSeq >= 0 ? "#5cc8ff" : "#ffcc4d"; ctx.fill();
     ctx.lineWidth = 2; ctx.strokeStyle = hot ? "#fff" : "#0f1420"; ctx.stroke();
     if (inSeq >= 0) {
-      ctx.fillStyle = "#08263a"; ctx.font = "bold 10px sans-serif";
+      ctx.fillStyle = "#08263a"; ctx.font = "bold " + sz.font + "px sans-serif";
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillText(String(inSeq + 1), X, Y);
     }
