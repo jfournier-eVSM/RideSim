@@ -191,6 +191,31 @@
   .pane.active { display: block; }
   .hint { color: var(--muted); font-size: 11px; margin: 0 0 8px; }
   .speed { width: 130px; }
+
+  /* ---------- Mobile: stack the three columns vertically ---------------- */
+  @media (max-width: 820px) {
+    body { overflow: auto; }
+    header { padding: 8px 12px; gap: 10px; }
+    header h1 { font-size: 14px; width: 100%; }
+    .controls { margin-left: 0; gap: 8px; row-gap: 8px; }
+
+    /* one vertical column instead of three side-by-side */
+    main { flex-direction: column; flex: none; }
+    .col { width: auto; min-height: 0; }
+    .col.left, .col.center, .col.right {
+      width: auto; flex: none;
+      border-left: none; border-right: none;
+      border-bottom: 1px solid var(--border);
+    }
+    /* section 1: attractions picker (own scroll) */
+    .col.left { height: 24vh; }
+    /* section 2: the map — give it real estate so it's actually usable */
+    .col.center { height: 52vh; }
+    /* section 3: sequence + timeline + summary (grows with content) */
+    .col.right { height: auto; }
+    .col.right #seqList { max-height: 28vh; }
+    .col.right .scroll#timeline { overflow-y: visible; flex: none; }
+  }
 </style>
 </head>
 <body>
