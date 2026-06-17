@@ -223,10 +223,10 @@
   <h1>🏰 Magic Kingdom <span>Ride Sequence Planner</span></h1>
   <div class="controls">
     <label class="ctl">Start <input type="time" id="startTime" value="09:00"></label>
-    <label class="ctl">ft/px <input type="number" id="ftPerPx" value="4" min="0.1" step="0.5" title="Feet per pixel — scales walk distance"></label>
+    <label class="ctl" style="display:none">ft/px <input type="number" id="ftPerPx" value="4" min="0.1" step="0.5" title="Feet per pixel — scales walk distance"></label>
     <label class="ctl">Map <input type="range" id="bgOpacity" min="0" max="100" value="100" style="width:70px" title="Background image opacity"></label>
-    <button id="bgAdjustBtn" title="Drag to move the map, scroll to scale it, to align it with the nodes">⤢ Align Map</button>
-    <button id="bgFitBtn" title="Scale &amp; center the map over the nodes as a starting point">Fit</button>
+    <button id="bgAdjustBtn" style="display:none" title="Drag to move the map, scroll to scale it, to align it with the nodes">⤢ Align Map</button>
+    <button id="bgFitBtn" style="display:none" title="Scale &amp; center the map over the nodes as a starting point">Fit</button>
     <button id="graphToggle" title="Show/hide the node + path network (route stays visible)">◉ Graph</button>
     <button id="planToggle" title="Highlight the day's route with direction arrows">🗺 Plan</button>
     <label class="ctl">Speed
@@ -239,7 +239,7 @@
     </label>
     <button id="playBtn" class="primary">▶ Animate</button>
     <button id="stopBtn">■ Stop</button>
-    <button id="addNodeBtn" title="Double-click the map to capture node coordinates">➕ Add Nodes</button>
+    <button id="addNodeBtn" style="display:none" title="Double-click the map to capture node coordinates">➕ Add Nodes</button>
     <button id="dataBtn">📋 Data</button>
     <button id="exportBtn">⬇ Export</button>
   </div>
