@@ -49,6 +49,9 @@ Attribute VB_Name = "VisioExport"
 '                        numeric or text ("12 min").
 '                        Prop.WaitID      -> Queue-Times.com ride id, written as
 '                        "waitId" so the planner can show live wait times.
+'                        Prop.AvgWait     -> typical wait (minutes), written as
+'                        "avgWait"; used for sequence timing when live waits
+'                        aren't on. Aliases: AverageWait/AvgWaitTime/WaitMinutes.
 '   On any attraction:   Prop.Hovertext   -> extra detail shown on map hover
 '                        (multi-line OK), written as "hoverText".
 '                        Prop.Closed      -> true = drawn gray (not open today).
@@ -304,7 +307,7 @@ Public Sub ExportRideSim()
             End If
         End If
         If attrCount > 0 Then attrJson = attrJson & "," & vbCrLf
-        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp), IsClosed(shp), WaitIdOf(shp), accJson, PropStr(shp, "Hovertext"))
+        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp), IsClosed(shp), WaitIdOf(shp), accJson, PropStr(shp, "Hovertext"), AvgWaitOf(shp))
         attrCount = attrCount + 1
     Next
 
@@ -843,6 +846,28 @@ Private Function ShapeName(shp As Visio.Shape) As String
     ShapeName = Trim$(shp.text)
 End Function
 
+' Average wait (minutes) from Shape Data, if present. Returns -1 when unset so
+' the exporter only emits "avgWait" for rides that actually carry it.
+Private Function AvgWaitOf(shp As Visio.Shape) As Double
+    On Error Resume Next
+    AvgWaitOf = -1
+    Dim names As Variant: names = Array("AvgWait", "AverageWait", "AvgWaitTime", "WaitMinutes")
+    Dim i As Long, cell As String, Row As Long
+    For Row = 0 To shp.RowCount(visSectionProp) - 1
+        For i = LBound(names) To UBound(names)
+            cell = "Prop." & names(i)
+            If shp.CellsSRC(visSectionProp, Row, 2).ResultStr(visNone) Like names(i) Then
+                Dim raw As String: raw = Trim$(shp.CellsSRC(visSectionProp, Row, 0).ResultStr(""))
+                If raw <> "" Then
+                    Dim v As Double: v = shp.CellsSRC(visSectionProp, Row, 0).Result(visNone)
+                    If v <= 0 Then v = ParseNum(raw)
+                    If v >= 0 Then AvgWaitOf = v: Exit Function
+                End If
+            End If
+        Next i
+    Next Row
+End Function
+
 Private Function PropStr(shp As Visio.Shape, propName As String) As String
     On Error Resume Next
     If shp.CellExistsU("Prop." & propName, 0) Then
@@ -868,10 +893,10 @@ End Function
 Private Function AttractionJson(id As String, nm As String, entId As String, exId As String, _
                           x As Variant, y As Variant, ride As Double, cat As String, _
                           closed As Boolean, waitId As String, accessIds As String, _
-                          hover As String) As String
-    ' Emit category/closed/waitId/accessNodeIds/hoverText only when set; otherwise
-    ' lines match the original shape so the web app (which defaults category
-    ' "ride", closed false) is happy.
+                          hover As String, avgWait As Double) As String
+    ' Emit category/closed/waitId/accessNodeIds/hoverText/avgWait only when set;
+    ' otherwise lines match the original shape so the web app (which defaults
+    ' category "ride", closed false) is happy.
     Dim catJson As String
     If cat <> "" And cat <> "ride" Then catJson = ", ""category"": """ & cat & """"
     Dim closedJson As String
@@ -882,10 +907,12 @@ Private Function AttractionJson(id As String, nm As String, entId As String, exI
     If accessIds <> "" Then accJson = ", ""accessNodeIds"": " & accessIds
     Dim hoverJson As String
     If Trim$(hover) <> "" Then hoverJson = ", ""hoverText"": """ & JStr(hover) & """"
+    Dim avgJson As String
+    If avgWait >= 0 Then avgJson = ", ""avgWait"": " & CLng(Round(avgWait))
     AttractionJson = "  { ""id"": """ & id & """, ""name"": """ & JStr(nm) & _
         """, ""entranceNodeId"": """ & entId & """, ""exitNodeId"": """ & exId & _
         """, ""displayLocation"": { ""x"": " & CLng(x) & ", ""y"": " & CLng(y) & _
-        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & closedJson & waitJson & accJson & hoverJson & " }"
+        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & closedJson & waitJson & accJson & hoverJson & avgJson & " }"
 End Function
 
 ' Queue-Times ride id from the attraction's Shape Data (Prop.WaitID and aliases).
