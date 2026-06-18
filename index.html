@@ -918,8 +918,8 @@ SAMPLE.attractions = [
   { "id": "cosmic_rays", "name": "Cosmic Ray’s", "entranceNodeId": "cosmic_rays_in", "exitNodeId": "cosmic_rays_out", "displayLocation": { "x": 1273, "y": 542 }, "rideDuration": 25, "category": "restaurant" },
   { "id": "tonys_town_square", "name": "Tony’s Town Square", "entranceNodeId": "tonys_town_square_in", "exitNodeId": "tonys_town_square_out", "displayLocation": { "x": 1065, "y": 1152 }, "rideDuration": 5, "category": "restaurant" },
   { "id": "main_st_bakery", "name": "Main St Bakery", "entranceNodeId": "main_st_bakery_in", "exitNodeId": "main_st_bakery_out", "displayLocation": { "x": 998, "y": 1067 }, "rideDuration": 5, "category": "restaurant" },
-  { "id": "emporium", "name": "Emporium", "entranceNodeId": "node40", "exitNodeId": "node40", "displayLocation": { "x": 937, "y": 1144 }, "rideDuration": 15, "category": "shop" },
-  { "id": "partners_statue", "name": "Partners Statue", "entranceNodeId": "node50", "exitNodeId": "node50", "displayLocation": { "x": 973, "y": 781 }, "rideDuration": 0, "category": "pin" }
+  { "id": "emporium", "name": "Emporium", "entranceNodeId": "node40", "exitNodeId": "node40", "displayLocation": { "x": 937, "y": 1144 }, "rideDuration": 15, "category": "shop", "hoverText": "Main Street's biggest gift shop — open until park close." },
+  { "id": "partners_statue", "name": "Partners Statue", "entranceNodeId": "node50", "exitNodeId": "node50", "displayLocation": { "x": 973, "y": 781 }, "rideDuration": 0, "category": "pin", "hoverText": "Walt & Mickey statue in the hub.\nGreat castle photo spot." }
 ];
 // @RIDESIM:ATTR:END
 
@@ -1372,10 +1372,12 @@ function draw(marker) {
     const loc = a.displayLocation || state.nodes.get(a.entranceNodeId);
     const X = tx(loc.x), Y = ty(loc.y);
     const hot = a.id === hoverAttr;
-    ctx.beginPath(); ctx.arc(X, Y, hot ? sz.hot : sz.r, 0, 7);
+    // pins are points of interest — draw them at half the diameter of others
+    const rad = (hot ? sz.hot : sz.r) * (cat === "pin" ? 0.5 : 1);
+    ctx.beginPath(); ctx.arc(X, Y, rad, 0, 7);
     ctx.fillStyle = attrClosed(a) ? CLOSED_COLOR : (inSeq >= 0 ? ATTR_COLORS[cat].on : ATTR_COLORS[cat].off); ctx.fill();
     ctx.lineWidth = 2; ctx.strokeStyle = hot ? "#fff" : "#0f1420"; ctx.stroke();
-    if (inSeq >= 0) {
+    if (inSeq >= 0 && cat !== "pin") {
       ctx.fillStyle = "#08263a"; ctx.font = "bold " + sz.font + "px sans-serif";
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillText(String(inSeq + 1), X, Y);
@@ -1433,17 +1435,51 @@ function drawAttrLabel(a) {
   const loc = a.displayLocation || state.nodes.get(a.entranceNodeId);
   if (!loc) return;
   const X = tx(loc.x), Y = ty(loc.y);
-  ctx.font = "bold 12px -apple-system, Segoe UI, sans-serif";
-  const txt = a.name || a.id;
-  const padX = 7, h = 20;
-  const wTxt = ctx.measureText(txt).width;
-  const bw = wTxt + padX * 2, bx = X - bw / 2, by = Y - 14 - h;
+  const name = a.name || a.id;
+  const nameFont = "bold 12px -apple-system, Segoe UI, sans-serif";
+  const subFont = "11px -apple-system, Segoe UI, sans-serif";
+  const maxW = 240;
+
+  // name line(s) + optional Hovertext, each paragraph word-wrapped
+  const lines = [{ t: name, font: nameFont, color: "#fff" }];
+  const extra = (a.hoverText || "").trim();
+  if (extra) {
+    extra.split(/\r?\n/).forEach(para => {
+      wrapText(para, subFont, maxW).forEach(l => lines.push({ t: l, font: subFont, color: "#b9c4d6" }));
+    });
+  }
+
+  const padX = 8, padY = 6, lineH = 15;
+  let bw = 0;
+  lines.forEach(l => { ctx.font = l.font; bw = Math.max(bw, ctx.measureText(l.t).width); });
+  bw += padX * 2;
+  const bh = padY * 2 + lineH * lines.length;
+  const cw = canvas.clientWidth;
+  let bx = Math.max(4, Math.min(X - bw / 2, cw - bw - 4));
+  let by = Y - 14 - bh;
+  if (by < 4) by = Y + 14;            // flip below the marker if it'd clip the top
+
   ctx.fillStyle = "rgba(16,22,36,0.92)";
-  ctx.strokeStyle = "#ffcc4d"; ctx.lineWidth = 1;
-  if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(bx, by, bw, h, 6); ctx.fill(); ctx.stroke(); }
-  else { ctx.fillRect(bx, by, bw, h); ctx.strokeRect(bx, by, bw, h); }
-  ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText(txt, X, by + h / 2);
+  ctx.strokeStyle = ATTR_COLORS[attrCat(a)].off; ctx.lineWidth = 1;
+  if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 6); ctx.fill(); ctx.stroke(); }
+  else { ctx.fillRect(bx, by, bw, bh); ctx.strokeRect(bx, by, bw, bh); }
+
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  let lineY = by + padY + lineH / 2;
+  lines.forEach(l => { ctx.font = l.font; ctx.fillStyle = l.color; ctx.fillText(l.t, bx + bw / 2, lineY); lineY += lineH; });
+}
+// Greedy word-wrap to a max pixel width using the given font.
+function wrapText(text, font, maxW) {
+  ctx.font = font;
+  const words = text.split(/\s+/);
+  const out = []; let cur = "";
+  words.forEach(w => {
+    const test = cur ? cur + " " + w : w;
+    if (cur && ctx.measureText(test).width > maxW) { out.push(cur); cur = w; }
+    else cur = test;
+  });
+  if (cur) out.push(cur);
+  return out.length ? out : [text];
 }
 
 /* ---------- UI: attraction picker --------------------------------------- */
@@ -1754,7 +1790,7 @@ function download(name, content, type) {
 const HINTS = {
   nodes: 'Array of { id, name?, isAttraction, x, y } — node coordinates in pixels.',
   connections: 'Array of { from, to:[...] }, or { from, to:"id", points:[{x,y}...] } for a polyline edge (length follows the polyline).',
-  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration, category?, closed? }. category ride|restaurant|shop|pin (default ride); only rides queue — others set entrance=exit to one node. closed true = gray (not open today).',
+  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration, category?, closed?, hoverText? }. category ride|restaurant|shop|pin (default ride); only rides queue — others set entrance=exit to one node. closed true = gray. hoverText shows extra detail on map hover.',
   waits: 'Tab-delimited: attraction_id  time_of_day(HH:MM)  avg_wait_minutes. Linearly interpolated.'
 };
 function openModal() {

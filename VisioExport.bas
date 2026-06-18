@@ -273,7 +273,7 @@ Public Sub ExportRideSim()
             If entId = "" Then Warn "'" & aId & "' has no node link (draw one line from it to any node)."
         End If
         If attrCount > 0 Then attrJson = attrJson & "," & vbCrLf
-        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp), IsClosed(shp))
+        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp), IsClosed(shp), PropStr(shp, "Hovertext"))
         attrCount = attrCount + 1
     Next
 
@@ -836,17 +836,19 @@ End Function
 
 Private Function AttractionJson(id As String, nm As String, entId As String, exId As String, _
                           x As Variant, y As Variant, ride As Double, cat As String, _
-                          closed As Boolean) As String
-    ' Emit category/closed only when set; otherwise lines match the original
-    ' shape so the web app (which defaults category to "ride", closed to false) is happy.
+                          closed As Boolean, hover As String) As String
+    ' Emit category/closed/hoverText only when set; otherwise lines match the
+    ' original shape so the web app (ride/open/no-hover defaults) is happy.
     Dim catJson As String
-    If cat = "restaurant" Then catJson = ", ""category"": ""restaurant"""
+    If cat <> "ride" Then catJson = ", ""category"": """ & cat & """"
     Dim closedJson As String
     If closed Then closedJson = ", ""closed"": true"
+    Dim hoverJson As String
+    If Trim$(hover) <> "" Then hoverJson = ", ""hoverText"": """ & JStr(hover) & """"
     AttractionJson = "  { ""id"": """ & id & """, ""name"": """ & JStr(nm) & _
         """, ""entranceNodeId"": """ & entId & """, ""exitNodeId"": """ & exId & _
         """, ""displayLocation"": { ""x"": " & CLng(x) & ", ""y"": " & CLng(y) & _
-        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & closedJson & " }"
+        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & closedJson & hoverJson & " }"
 End Function
 
 ' True when the shape's "Closed" shape data is set (not open at the park today).
