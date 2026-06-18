@@ -47,6 +47,8 @@ Attribute VB_Name = "VisioExport"
 '   On Attraction:       Prop.RideDuration-> ride minutes (else DEFAULT_RIDE).
 '                        Also accepts Prop.Duration / RideTime / Ride / Minutes,
 '                        numeric or text ("12 min").
+'                        Prop.WaitID      -> Queue-Times.com ride id, written as
+'                        "waitId" so the planner can show live wait times.
 '
 ' SCALE BAR (sets real-world walking speed):
 '   Add two shapes named (or mastered) ScaleStart and ScaleEnd and a line
@@ -160,14 +162,19 @@ Public Sub ExportRideSim()
                         Case "Exit":     PutOnceKey exitOf, "k" & oShp.id, aId, "Exit", shp
                         Case "Attraction": Warn "Line links two Attractions, ignored: " & shp.NameU
                         Case "Node"
-                            ' Rides need an Entrance + Exit; everything else (restaurant/
-                            ' shop/pin) hooks straight to a single node used for both.
+                            ' Rides need an Entrance + Exit; everything else
+                            ' (restaurant/shop/pin) hooks to one OR MORE nodes -
+                            ' the planner routes to whichever is nearest.
                             If CategoryOf(aShp) = "ride" Then
                                 Warn "Ride '" & aId & "' linked to a plain Node - rides use Entrance/Exit. Ignored."
-                            ElseIf KeyExists(directOf, "k" & aShp.id) Then
-                                Warn "'" & aId & "' already linked to a node; ignoring extra link from " & shp.NameU & "."
                             Else
-                                directOf.Add CStr(oShp.id), "k" & aShp.id
+                                Dim lst As Collection
+                                If KeyExists(directOf, "k" & aShp.id) Then
+                                    Set lst = directOf("k" & aShp.id)
+                                Else
+                                    Set lst = New Collection: directOf.Add lst, "k" & aShp.id
+                                End If
+                                lst.Add CStr(oShp.id)
                             End If
                         Case Else: Warn "Attraction '" & aId & "' linked to an unexpected shape. Ignored."
                     End Select
@@ -259,21 +266,38 @@ Public Sub ExportRideSim()
         Dim ac As Variant: ac = CenterPx(shp)
         Dim entId As String, exId As String
         entId = "": exId = ""
+        Dim accJson As String: accJson = ""
         If CategoryOf(shp) = "ride" Then
             If KeyExists(assocEnt, aId) Then entId = assocEnt(aId) Else _
                 Warn "Ride '" & aId & "' has no Entrance link (draw a line from it to its Entrance node)."
             If KeyExists(assocExit, aId) Then exId = assocExit(aId) Else _
                 Warn "Ride '" & aId & "' has no Exit link (draw a line from it to its Exit node)."
         Else
-            ' restaurant/shop/pin: a single node link serves as both entrance and exit
+            ' restaurant/shop/pin: one or more node links (optional). entrance =
+            ' exit = first; if 2+ distinct nodes, also emit accessNodeIds so the
+            ' planner can route to the nearest. No link is fine (only rides need
+            ' entrance/exit), so we don't warn.
             If KeyExists(directOf, "k" & shp.id) Then
-                Dim nsid As String: nsid = directOf("k" & shp.id)
-                If KeyExists(mNodeMap, "k" & nsid) Then entId = mNodeMap("k" & nsid)(0): exId = entId
+                Set lst = directOf("k" & shp.id)
+                Dim seenN As Collection: Set seenN = New Collection
+                Dim ids As String, cnt As Long, j As Long, nid2 As String
+                For j = 1 To lst.Count
+                    If KeyExists(mNodeMap, "k" & lst(j)) Then
+                        nid2 = mNodeMap("k" & lst(j))(0)
+                        If Not KeyExists(seenN, nid2) Then
+                            seenN.Add True, nid2
+                            If cnt = 0 Then entId = nid2: exId = nid2
+                            If cnt > 0 Then ids = ids & ", "
+                            ids = ids & """" & nid2 & """"
+                            cnt = cnt + 1
+                        End If
+                    End If
+                Next j
+                If cnt >= 2 Then accJson = "[" & ids & "]"
             End If
-            If entId = "" Then Warn "'" & aId & "' has no node link (draw one line from it to any node)."
         End If
         If attrCount > 0 Then attrJson = attrJson & "," & vbCrLf
-        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp), IsClosed(shp))
+        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp), IsClosed(shp), WaitIdOf(shp), accJson)
         attrCount = attrCount + 1
     Next
 
@@ -836,17 +860,36 @@ End Function
 
 Private Function AttractionJson(id As String, nm As String, entId As String, exId As String, _
                           x As Variant, y As Variant, ride As Double, cat As String, _
-                          closed As Boolean) As String
-    ' Emit category/closed only when set; otherwise lines match the original
-    ' shape so the web app (which defaults category to "ride", closed to false) is happy.
+                          closed As Boolean, waitId As String, accessIds As String) As String
+    ' Emit category/closed/waitId/accessNodeIds only when set; otherwise lines
+    ' match the original shape so the web app (which defaults category "ride",
+    ' closed false) is happy.
     Dim catJson As String
-    If cat = "restaurant" Then catJson = ", ""category"": ""restaurant"""
+    If cat <> "" And cat <> "ride" Then catJson = ", ""category"": """ & cat & """"
     Dim closedJson As String
     If closed Then closedJson = ", ""closed"": true"
+    Dim waitJson As String
+    If waitId <> "" Then waitJson = ", ""waitId"": """ & JStr(waitId) & """"
+    Dim accJson As String
+    If accessIds <> "" Then accJson = ", ""accessNodeIds"": " & accessIds
     AttractionJson = "  { ""id"": """ & id & """, ""name"": """ & JStr(nm) & _
         """, ""entranceNodeId"": """ & entId & """, ""exitNodeId"": """ & exId & _
         """, ""displayLocation"": { ""x"": " & CLng(x) & ", ""y"": " & CLng(y) & _
-        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & closedJson & " }"
+        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & closedJson & waitJson & accJson & " }"
+End Function
+
+' Queue-Times ride id from the attraction's Shape Data (Prop.WaitID and aliases).
+Private Function WaitIdOf(shp As Visio.Shape) As String
+    On Error Resume Next
+    Dim names As Variant: names = Array("WaitID", "WaitId", "QueueID", "QueueTimesID")
+    Dim i As Long, cell As String, vstr As String
+    For i = LBound(names) To UBound(names)
+        cell = "Prop." & names(i)
+        If shp.CellExistsU(cell, 0) Then
+            vstr = Trim$(shp.CellsU(cell).ResultStr(""))
+            If vstr <> "" Then WaitIdOf = vstr: Exit Function
+        End If
+    Next i
 End Function
 
 ' True when the shape's "Closed" shape data is set (not open at the park today).
@@ -887,8 +930,10 @@ Private Function ReverseCol(c As Collection) As Collection
 End Function
 
 Private Function KeyExists(c As Collection, k As String) As Boolean
+    ' IsObject() probes the item without Let-coercing it, so this works when the
+    ' stored value is an object (e.g. a Collection) as well as a primitive.
     On Error GoTo nope
-    Dim tmp As Variant: tmp = c(k)
+    Dim probe As Boolean: probe = IsObject(c(k))
     KeyExists = True
     Exit Function
 nope:
