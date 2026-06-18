@@ -252,7 +252,7 @@ Public Sub ExportRideSim()
         If KeyExists(assocExit, aId) Then exId = assocExit(aId) Else _
             Warn "Attraction '" & aId & "' has no Exit link (draw a line from it to its Exit node)."
         If attrCount > 0 Then attrJson = attrJson & "," & vbCrLf
-        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp))
+        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp), IsClosed(shp))
         attrCount = attrCount + 1
     Next
 
@@ -809,15 +809,28 @@ Private Function NodeJson(id As String, isAttr As Boolean, x As Variant, y As Va
 End Function
 
 Private Function AttractionJson(id As String, nm As String, entId As String, exId As String, _
-                          x As Variant, y As Variant, ride As Double, cat As String) As String
-    ' Emit the category field only for restaurants; rides stay in the original
-    ' shape so the web app (which defaults a missing category to "ride") is happy.
+                          x As Variant, y As Variant, ride As Double, cat As String, _
+                          closed As Boolean) As String
+    ' Emit category/closed only when set; otherwise lines match the original
+    ' shape so the web app (which defaults category to "ride", closed to false) is happy.
     Dim catJson As String
     If cat = "restaurant" Then catJson = ", ""category"": ""restaurant"""
+    Dim closedJson As String
+    If closed Then closedJson = ", ""closed"": true"
     AttractionJson = "  { ""id"": """ & id & """, ""name"": """ & JStr(nm) & _
         """, ""entranceNodeId"": """ & entId & """, ""exitNodeId"": """ & exId & _
         """, ""displayLocation"": { ""x"": " & CLng(x) & ", ""y"": " & CLng(y) & _
-        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & " }"
+        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & closedJson & " }"
+End Function
+
+' True when the shape's "Closed" shape data is set (not open at the park today).
+' Accepts Visio Boolean cells (TRUE/FALSE) as well as text/numeric truthy values.
+Private Function IsClosed(shp As Visio.Shape) As Boolean
+    On Error Resume Next
+    If Not shp.CellExistsU("Prop.Closed", 0) Then Exit Function
+    Dim v As String: v = UCase$(Trim$(shp.CellsU("Prop.Closed").ResultStr("")))
+    If v = "TRUE" Or v = "1" Or v = "YES" Or v = "Y" Then IsClosed = True
+    If shp.CellsU("Prop.Closed").Result(visNone) <> 0 Then IsClosed = True
 End Function
 
 Private Function JStr(s As String) As String
