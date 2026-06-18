@@ -119,7 +119,7 @@ Public Sub ExportRideSim()
             Case "Node":     nodeShapes.Add shp
             Case "Entrance": entShapes.Add shp
             Case "Exit":     exitShapes.Add shp
-            Case "Attraction"
+            Case "Attraction", "Restaurant"   ' a Restaurant is an attraction with category "restaurant"
                 mAttrMap.Add AttrIdFor(shp, usedAttr), "k" & shp.id
                 attractions.Add shp
         End Select
@@ -252,7 +252,7 @@ Public Sub ExportRideSim()
         If KeyExists(assocExit, aId) Then exId = assocExit(aId) Else _
             Warn "Attraction '" & aId & "' has no Exit link (draw a line from it to its Exit node)."
         If attrCount > 0 Then attrJson = attrJson & "," & vbCrLf
-        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp))
+        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp))
         attrCount = attrCount + 1
     Next
 
@@ -389,6 +389,7 @@ Private Function MasterRole(shp As Visio.Shape) As String
     Dim nu As String: nu = LCase$(shp.Master.NameU)
     Select Case True
         Case nm = "attraction", nu = "attraction": MasterRole = "Attraction"
+        Case nm = "restaurant", nu = "restaurant": MasterRole = "Restaurant"
         Case nm = "entrance", nu = "entrance":     MasterRole = "Entrance"
         Case nm = "exit", nu = "exit":             MasterRole = "Exit"
         Case nm = "node", nu = "node":             MasterRole = "Node"
@@ -620,6 +621,16 @@ Private Function RoleOfShape(s As Visio.Shape) As String
     If KeyExists(mRole, "k" & s.id) Then RoleOfShape = mRole("k" & s.id)
 End Function
 
+' "restaurant" if the shape came from the Restaurant master, otherwise "ride".
+' (Restaurants are stored as attractions, so their original master role is kept
+'  in mRole and read back here when emitting JSON.)
+Private Function CategoryOf(shp As Visio.Shape) As String
+    CategoryOf = "ride"
+    If KeyExists(mRole, "k" & shp.id) Then
+        If mRole("k" & shp.id) = "Restaurant" Then CategoryOf = "restaurant"
+    End If
+End Function
+
 ' Final node id for a (possibly sub-) shape, after pass C assigned ids.
 Private Function FinalId(shp As Visio.Shape) As String
     Dim s As Visio.Shape: Set s = ClimbKnown(shp)
@@ -798,11 +809,15 @@ Private Function NodeJson(id As String, isAttr As Boolean, x As Variant, y As Va
 End Function
 
 Private Function AttractionJson(id As String, nm As String, entId As String, exId As String, _
-                          x As Variant, y As Variant, ride As Double) As String
+                          x As Variant, y As Variant, ride As Double, cat As String) As String
+    ' Emit the category field only for restaurants; rides stay in the original
+    ' shape so the web app (which defaults a missing category to "ride") is happy.
+    Dim catJson As String
+    If cat = "restaurant" Then catJson = ", ""category"": ""restaurant"""
     AttractionJson = "  { ""id"": """ & id & """, ""name"": """ & JStr(nm) & _
         """, ""entranceNodeId"": """ & entId & """, ""exitNodeId"": """ & exId & _
         """, ""displayLocation"": { ""x"": " & CLng(x) & ", ""y"": " & CLng(y) & _
-        " }, ""rideDuration"": " & CLng(Round(ride)) & " }"
+        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & " }"
 End Function
 
 Private Function JStr(s As String) As String
