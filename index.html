@@ -289,6 +289,7 @@
         <div class="row"><span class="swatch" style="background:var(--walk)"></span> Walk path</div>
         <div class="row"><span class="swatch" style="background:var(--accent2);width:10px;height:10px;border-radius:50%"></span> Ride</div>
         <div class="row"><span class="swatch" style="background:var(--rest);width:10px;height:10px;border-radius:50%"></span> Restaurant</div>
+        <div class="row"><span class="swatch" style="background:#6b7687;width:10px;height:10px;border-radius:50%"></span> Closed</div>
         <div class="row"><span class="swatch" style="background:#46557a;width:5px;height:5px;border-radius:50%"></span> Path junction</div>
       </div>
     </div>
@@ -349,6 +350,9 @@ const WALK_FT_PER_MIN = 88; // ~3 mph
 // Attraction categories. A "restaurant" is an attraction with no wait time
 // but a duration (like a ride) — it just gets its own color/category.
 function attrCat(a) { return a && a.category === "restaurant" ? "restaurant" : "ride"; }
+// Closed = not open at the park today; shown as a flat gray circle.
+function attrClosed(a) { return !!(a && a.closed); }
+const CLOSED_COLOR = "#6b7687";
 // Marker colors per category: { off: not in sequence, on: in sequence }.
 const ATTR_COLORS = {
   ride:       { off: "#ffcc4d", on: "#5cc8ff" },
@@ -811,7 +815,7 @@ SAMPLE.connections = [
 
 // @RIDESIM:ATTR:START  (VisioExport.bas rewrites everything up to ATTR:END)
 SAMPLE.attractions = [
-  { "id": "big_thunder", "name": "Big Thunder", "entranceNodeId": "big_thunder_in", "exitNodeId": "big_thunder_out", "displayLocation": { "x": 241, "y": 344 }, "rideDuration": 4 },
+  { "id": "big_thunder", "name": "Big Thunder", "entranceNodeId": "big_thunder_in", "exitNodeId": "big_thunder_out", "displayLocation": { "x": 241, "y": 344 }, "rideDuration": 4, "closed": true },
   { "id": "tianas", "name": "Tianas", "entranceNodeId": "tianas_in", "exitNodeId": "tianas_out", "displayLocation": { "x": 193, "y": 602 }, "rideDuration": 11 },
   { "id": "pirates", "name": "Pirates", "entranceNodeId": "pirates_in", "exitNodeId": "pirates_out", "displayLocation": { "x": 307, "y": 902 }, "rideDuration": 8 },
   { "id": "tiki", "name": "Tiki", "entranceNodeId": "tiki_in", "exitNodeId": "tiki_out", "displayLocation": { "x": 463, "y": 848 }, "rideDuration": 10 },
@@ -837,8 +841,8 @@ SAMPLE.attractions = [
   { "id": "tomorrowland_speedway", "name": "Tomorrowland Speedway", "entranceNodeId": "tomorrowland_speedway_in", "exitNodeId": "tomorrowland_speedway_out", "displayLocation": { "x": 1375, "y": 554 }, "rideDuration": 5 },
   { "id": "astro_orbiter", "name": "Astro Orbiter", "entranceNodeId": "astro_orbiter_in", "exitNodeId": "astro_orbiter_out", "displayLocation": { "x": 1405, "y": 758 }, "rideDuration": 2 },
   { "id": "space", "name": "Space", "entranceNodeId": "space_in", "exitNodeId": "space_out", "displayLocation": { "x": 1771, "y": 626 }, "rideDuration": 2 },
-  { "id": "tron", "name": "Tron", "entranceNodeId": "tron_in", "exitNodeId": "tron_out", "displayLocation": { "x": 1699, "y": 368 }, "rideDuration": 1 },
-  { "id": "carousel_of_progress", "name": "Carousel of Progress", "entranceNodeId": "carousel_of_progress_in", "exitNodeId": "carousel_of_progress_out", "displayLocation": { "x": 1465, "y": 950 }, "rideDuration": 21 },
+  { "id": "tron", "name": "Tron", "entranceNodeId": "tron_in", "exitNodeId": "tron_out", "displayLocation": { "x": 1699, "y": 368 }, "rideDuration": 1, "closed": true },
+  { "id": "carousel_of_progress", "name": "Carousel of Progress", "entranceNodeId": "carousel_of_progress_in", "exitNodeId": "carousel_of_progress_out", "displayLocation": { "x": 1465, "y": 950 }, "rideDuration": 21, "closed": true },
   { "id": "buzz_lightyear", "name": "Buzz Lightyear", "entranceNodeId": "buzz_lightyear_in", "exitNodeId": "buzz_lightyear_out", "displayLocation": { "x": 1291, "y": 836 }, "rideDuration": 4 },
   { "id": "people_mover", "name": "People Mover", "entranceNodeId": "people_mover_in", "exitNodeId": "people_mover_out", "displayLocation": { "x": 1423, "y": 824 }, "rideDuration": 10 },
   { "id": "meet_mickey", "name": "Meet Mickey", "entranceNodeId": "meet_mickey_in", "exitNodeId": "meet_mickey_out", "displayLocation": { "x": 1072, "y": 1157 }, "rideDuration": 5 },
@@ -1299,7 +1303,7 @@ function draw(marker) {
     const X = tx(loc.x), Y = ty(loc.y);
     const hot = a.id === hoverAttr;
     ctx.beginPath(); ctx.arc(X, Y, hot ? sz.hot : sz.r, 0, 7);
-    ctx.fillStyle = inSeq >= 0 ? ATTR_COLORS[cat].on : ATTR_COLORS[cat].off; ctx.fill();
+    ctx.fillStyle = attrClosed(a) ? CLOSED_COLOR : (inSeq >= 0 ? ATTR_COLORS[cat].on : ATTR_COLORS[cat].off); ctx.fill();
     ctx.lineWidth = 2; ctx.strokeStyle = hot ? "#fff" : "#0f1420"; ctx.stroke();
     if (inSeq >= 0) {
       ctx.fillStyle = "#08263a"; ctx.font = "bold " + sz.font + "px sans-serif";
@@ -1382,7 +1386,9 @@ function renderAttrList() {
   sorted.forEach(a => {
     const div = document.createElement("div");
     div.className = "attr-item";
-    div.innerHTML = '<span class="dot" style="background:' + ATTR_COLORS[attrCat(a)].off + '"></span><span class="nm">' + esc(a.name) +
+    const dotColor = attrClosed(a) ? CLOSED_COLOR : ATTR_COLORS[attrCat(a)].off;
+    div.innerHTML = '<span class="dot" style="background:' + dotColor + '"></span><span class="nm">' + esc(a.name) +
+      (attrClosed(a) ? ' <span class="meta">(closed)</span>' : '') +
       '</span><span class="meta">' + (a.rideDuration || 0) + 'm</span>';
     div.onclick = () => { state.sequence.push(a.id); refresh(); };
     div.onmouseenter = () => {
@@ -1677,7 +1683,7 @@ function download(name, content, type) {
 const HINTS = {
   nodes: 'Array of { id, name?, isAttraction, x, y } — node coordinates in pixels.',
   connections: 'Array of { from, to:[...] }, or { from, to:"id", points:[{x,y}...] } for a polyline edge (length follows the polyline).',
-  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration, category? }. category "restaurant" = no wait, different color; defaults to a ride.',
+  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration, category?, closed? }. category "restaurant" = no wait, different color; closed true = gray (not open today).',
   waits: 'Tab-delimited: attraction_id  time_of_day(HH:MM)  avg_wait_minutes. Linearly interpolated.'
 };
 function openModal() {
