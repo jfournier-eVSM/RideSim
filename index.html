@@ -223,12 +223,11 @@
       border-left: none; border-right: none;
       border-bottom: 1px solid var(--border);
     }
-    /* section 1: attractions picker (own scroll) */
-    .col.left { height: 24vh; }
-    /* section 2: the map — give it real estate so it's actually usable */
-    .col.center { height: 52vh; }
-    /* section 3: sequence + timeline + summary (grows with content) */
-    .col.right { height: auto; }
+    /* stacked top-to-bottom: attractions, then your sequence, then the map */
+    .col.left { height: 24vh; order: 1; }
+    /* the map sits last — scroll to it; sticky header keeps controls in view */
+    .col.center { height: 52vh; order: 3; }
+    .col.right { height: auto; order: 2; }
     .col.right #seqList { max-height: 28vh; }
     .col.right .scroll#timeline { overflow-y: visible; flex: none; }
   }
