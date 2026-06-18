@@ -1011,7 +1011,7 @@ SAMPLE.attractions = [
   { "id": "lunching_pad", "name": "Lunching Pad", "entranceNodeId": "node126", "exitNodeId": "node126", "displayLocation": { "x": 1407, "y": 799 }, "rideDuration": 5, "category": "restaurant", "accessNodeIds": ["node126", "node121", "node127"] },
   { "id": "launch_depot", "name": "Launch Depot", "entranceNodeId": "node140", "exitNodeId": "node140", "displayLocation": { "x": 1599, "y": 666 }, "rideDuration": 5, "category": "shop", "accessNodeIds": ["node140", "node136"] },
   { "id": "emporium", "name": "Emporium", "entranceNodeId": "node50", "exitNodeId": "node50", "displayLocation": { "x": 940, "y": 1096 }, "rideDuration": 5, "category": "shop", "accessNodeIds": ["node50", "node56"] },
-  { "id": "agrabah_bazaar", "name": "Agrabah Bazaar", "entranceNodeId": "node12", "exitNodeId": "node12", "displayLocation": { "x": 452, "y": 792 }, "rideDuration": 5, "category": "pin", "accessNodeIds": ["node12", "node14"] },
+  { "id": "agrabah_bazaar", "name": "Agrabah Bazaar", "entranceNodeId": "node12", "exitNodeId": "node12", "displayLocation": { "x": 452, "y": 792 }, "rideDuration": 5, "category": "pin", "accessNodeIds": ["node12", "node14"], "hoverText": "Open-air market in Adventureland.\nHand-carved trinkets & spices." },
   { "id": "confectionary", "name": "Confectionary", "entranceNodeId": "node56", "exitNodeId": "node56", "displayLocation": { "x": 1000, "y": 1099 }, "rideDuration": 5, "category": "pin", "accessNodeIds": ["node56", "node71"] }
 ];
 // @RIDESIM:ATTR:END
@@ -1506,14 +1506,15 @@ function draw(marker) {
     const X = tx(loc.x), Y = ty(loc.y);
     const hot = a.id === hoverAttr;
     const live = showLiveWaits ? liveWaitFor(a) : null;
-    let radius = hot ? sz.hot : sz.r, fill, inside = "", insideColor = "#08263a";
+    // pins are points of interest — half the diameter of other markers
+    let radius = (hot ? sz.hot : sz.r) * (cat === "pin" ? 0.5 : 1), fill, inside = "", insideColor = "#08263a";
     if (live) {
       radius += 3;                                  // a touch bigger to fit the number
       if (!live.open) { fill = CLOSED_COLOR; inside = "✕"; insideColor = "#fff"; }
       else { fill = waitColor(live.wait); inside = String(live.wait); insideColor = "#fff"; }
     } else {
       fill = attrClosed(a) ? CLOSED_COLOR : (inSeq >= 0 ? ATTR_COLORS[cat].on : ATTR_COLORS[cat].off);
-      inside = inSeq >= 0 ? String(inSeq + 1) : "";
+      inside = (inSeq >= 0 && cat !== "pin") ? String(inSeq + 1) : "";  // too small to hold a number
     }
     ctx.beginPath(); ctx.arc(X, Y, radius, 0, 7);
     ctx.fillStyle = fill; ctx.fill();
@@ -1572,22 +1573,51 @@ function drawArrowhead(x, y, ux, uy, color) {
   ctx.lineTo(x - ux * s - px * w, y - uy * s - py * w);
   ctx.closePath(); ctx.fill();
 }
-// Hover label: a readable pill centered above the attraction circle.
+// Hover label: a readable pill above the circle. Shows the name, plus any
+// hoverText beneath it (word-wrapped, clamped to the canvas).
 function drawAttrLabel(a) {
   const loc = a.displayLocation || state.nodes.get(a.entranceNodeId);
   if (!loc) return;
   const X = tx(loc.x), Y = ty(loc.y);
-  ctx.font = "bold 12px -apple-system, Segoe UI, sans-serif";
-  const txt = a.name || a.id;
-  const padX = 7, h = 20;
-  const wTxt = ctx.measureText(txt).width;
-  const bw = wTxt + padX * 2, bx = X - bw / 2, by = Y - 14 - h;
+  const nameFont = "bold 12px -apple-system, Segoe UI, sans-serif";
+  const subFont = "11px -apple-system, Segoe UI, sans-serif";
+  const maxW = 240;
+
+  const lines = [{ t: a.name || a.id, font: nameFont, color: "#fff" }];
+  const extra = (a.hoverText || "").trim();
+  if (extra) extra.split(/\r?\n/).forEach(para =>
+    wrapText(para, subFont, maxW).forEach(l => lines.push({ t: l, font: subFont, color: "#b9c4d6" })));
+
+  const padX = 8, padY = 6, lineH = 15;
+  let bw = 0;
+  lines.forEach(l => { ctx.font = l.font; bw = Math.max(bw, ctx.measureText(l.t).width); });
+  bw += padX * 2;
+  const bh = padY * 2 + lineH * lines.length;
+  let bx = Math.max(4, Math.min(X - bw / 2, canvas.clientWidth - bw - 4));
+  let by = Y - 14 - bh;
+  if (by < 4) by = Y + 14;            // flip below the marker if it'd clip the top
+
   ctx.fillStyle = "rgba(16,22,36,0.92)";
-  ctx.strokeStyle = "#ffcc4d"; ctx.lineWidth = 1;
-  if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(bx, by, bw, h, 6); ctx.fill(); ctx.stroke(); }
-  else { ctx.fillRect(bx, by, bw, h); ctx.strokeRect(bx, by, bw, h); }
-  ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText(txt, X, by + h / 2);
+  ctx.strokeStyle = ATTR_COLORS[attrCat(a)].off; ctx.lineWidth = 1;
+  if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 6); ctx.fill(); ctx.stroke(); }
+  else { ctx.fillRect(bx, by, bw, bh); ctx.strokeRect(bx, by, bw, bh); }
+
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  let lineY = by + padY + lineH / 2;
+  lines.forEach(l => { ctx.font = l.font; ctx.fillStyle = l.color; ctx.fillText(l.t, bx + bw / 2, lineY); lineY += lineH; });
+}
+// Greedy word-wrap to a max pixel width using the given font.
+function wrapText(text, font, maxW) {
+  ctx.font = font;
+  const words = text.split(/\s+/);
+  const out = []; let cur = "";
+  words.forEach(w => {
+    const test = cur ? cur + " " + w : w;
+    if (cur && ctx.measureText(test).width > maxW) { out.push(cur); cur = w; }
+    else cur = test;
+  });
+  if (cur) out.push(cur);
+  return out.length ? out : [text];
 }
 
 /* ---------- Live wait times (Queue-Times.com) --------------------------- */
@@ -1971,7 +2001,7 @@ function download(name, content, type) {
 const HINTS = {
   nodes: 'Array of { id, name?, isAttraction, x, y } — node coordinates in pixels.',
   connections: 'Array of { from, to:[...] }, or { from, to:"id", points:[{x,y}...] } for a polyline edge (length follows the polyline).',
-  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration, category?, closed? }. category ride|restaurant|shop|pin (default ride); only rides queue — others set entrance=exit to one node. closed true = gray (not open today).',
+  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration, category?, closed?, hoverText? }. category ride|restaurant|shop|pin (default ride); only rides queue — others set entrance=exit to one node. closed true = gray. hoverText shows extra detail on map hover.',
   waits: 'Tab-delimited: attraction_id  time_of_day(HH:MM)  avg_wait_minutes. Linearly interpolated.'
 };
 function openModal() {
