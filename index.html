@@ -227,9 +227,10 @@
     .col.left { height: 24vh; order: 1; }
     /* the map sits last — scroll to it; sticky header keeps controls in view */
     .col.center { height: 52vh; order: 3; }
-    .col.right { height: auto; order: 2; }
-    .col.right #seqList { max-height: 28vh; }
-    .col.right .scroll#timeline { overflow-y: visible; flex: none; }
+    /* cap the sequence + timeline so the map isn't pushed far down;
+       both lists scroll internally (timeline keeps its base .scroll flex:1) */
+    .col.right { height: 44vh; order: 2; }
+    .col.right #seqList { max-height: 18vh; }
   }
 </style>
 </head>
