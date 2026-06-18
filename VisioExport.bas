@@ -279,8 +279,12 @@ Public Sub ExportRideSim()
             ' entrance/exit), so we don't warn.
             If KeyExists(directOf, "k" & shp.id) Then
                 Set lst = directOf("k" & shp.id)
+                ' NB: ids/cnt are proc-scoped; reset them per attraction or they
+                ' accumulate every previous shop's nodes.
                 Dim seenN As Collection: Set seenN = New Collection
-                Dim ids As String, cnt As Long, j As Long, nid2 As String
+                Dim j As Long, nid2 As String
+                Dim ids As String: ids = ""
+                Dim cnt As Long: cnt = 0
                 For j = 1 To lst.Count
                     If KeyExists(mNodeMap, "k" & lst(j)) Then
                         nid2 = mNodeMap("k" & lst(j))(0)
