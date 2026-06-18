@@ -907,6 +907,14 @@ function fmtDur(min) {
   if (min < 60) return min + "m";
   return Math.floor(min / 60) + "h " + (min % 60) + "m";
 }
+// Walk distance from a step's pixel length, in real-world units.
+function stepFeet(distPx) { return distPx * ftPerPx(); }
+// Per-step distance: feet (with thousands separators).
+function fmtFeet(ft) { return Math.round(ft).toLocaleString() + " ft"; }
+// Totals: switch to miles once it's far enough to be more readable.
+function fmtDist(ft) {
+  return ft >= 5280 ? (ft / 5280).toFixed(2) + " mi" : fmtFeet(ft);
+}
 
 /* ---------- Parsing & graph build -------------------------------------- */
 function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
@@ -1443,9 +1451,10 @@ function renderTimeline() {
     defs.push([isRest ? "dine" : "ride", (isRest ? "Eat at " : "Ride ") + s.name, s.ride, s.rideStart, s.rideEnd]);
     const rows = defs.map(d => {
       const wpct = Math.max(4, (d[2] / maxSpan) * 120);
+      const dist = d[0] === "walk" ? ' &middot; ' + fmtFeet(stepFeet(s.distPx)) : '';
       return '<div class="tl-row ' + d[0] + '" data-step="' + i + '">' +
         '<span class="bar" style="width:' + wpct + 'px"></span>' +
-        '<span class="lbl">' + esc(d[1]) + ' <b>' + fmtDur(d[2]) + '</b></span>' +
+        '<span class="lbl">' + esc(d[1]) + ' <b>' + fmtDur(d[2]) + '</b>' + dist + '</span>' +
         '<span class="tm">' + minToHM(d[3]) + '&ndash;' + minToHM(d[4]) + '</span></div>';
     }).join("");
     box.innerHTML = '<div class="tl-head"><span>' + (i + 1) + '. ' + esc(s.name) + warn +
@@ -1461,11 +1470,12 @@ function renderSummary() {
   const totWalk = state.steps.reduce((s, x) => s + x.walk, 0);
   const totWait = state.steps.reduce((s, x) => s + x.wait, 0);
   const totRide = state.steps.reduce((s, x) => s + x.ride, 0);
+  const totFt = state.steps.reduce((s, x) => s + stepFeet(x.distPx), 0);
   const grand = totWalk + totWait + totRide;
   el.innerHTML =
     '<div class="big">' + fmtDur(grand) + ' total</div>' +
     '<div class="row"><span>Finish time</span><span>' + minToHM(last.rideEnd) + '</span></div>' +
-    '<div class="row"><span style="color:var(--walk)">Walking</span><span>' + fmtDur(totWalk) + '</span></div>' +
+    '<div class="row"><span style="color:var(--walk)">Walking</span><span>' + fmtDur(totWalk) + ' &middot; ' + fmtDist(totFt) + '</span></div>' +
     '<div class="row"><span style="color:var(--wait)">Waiting</span><span>' + fmtDur(totWait) + '</span></div>' +
     '<div class="row"><span style="color:var(--ride)">Riding</span><span>' + fmtDur(totRide) + '</span></div>' +
     '<div class="row"><span>Attractions</span><span>' + state.steps.length + '</span></div>';
@@ -1618,7 +1628,7 @@ function exportPlan() {
     lines.push("");
     const isRest = s.category === "restaurant";
     lines.push((i + 1) + ". " + s.name + (isRest ? " [restaurant]" : "") + (s.reachable ? "" : "  [NO PATH FOUND]"));
-    lines.push("   " + minToHM(s.walkStart) + " - " + minToHM(s.walkEnd) + "  Walk to " + s.name + " (" + fmtDur(s.walk) + ")");
+    lines.push("   " + minToHM(s.walkStart) + " - " + minToHM(s.walkEnd) + "  Walk to " + s.name + " (" + fmtDur(s.walk) + ", " + fmtFeet(stepFeet(s.distPx)) + ")");
     if (!isRest)
       lines.push("   " + minToHM(s.waitStart) + " - " + minToHM(s.waitEnd) + "  Wait (" + fmtDur(s.wait) + ")");
     lines.push("   " + minToHM(s.rideStart) + " - " + minToHM(s.rideEnd) + "  " + (isRest ? "Eat" : "Ride") + " (" + fmtDur(s.ride) + ")");
@@ -1627,10 +1637,12 @@ function exportPlan() {
   const totWalk = state.steps.reduce((a, x) => a + x.walk, 0);
   const totWait = state.steps.reduce((a, x) => a + x.wait, 0);
   const totRide = state.steps.reduce((a, x) => a + x.ride, 0);
+  const totFt = state.steps.reduce((a, x) => a + stepFeet(x.distPx), 0);
   lines.push("");
   lines.push(Array(49).join("="));
   lines.push("TOTAL: " + fmtDur(totWalk + totWait + totRide) +
     "  (walk " + fmtDur(totWalk) + ", wait " + fmtDur(totWait) + ", ride " + fmtDur(totRide) + ")");
+  lines.push("Distance walked: " + fmtDist(totFt) + " (" + fmtFeet(totFt) + ")");
   lines.push("Finish: " + minToHM(state.steps[state.steps.length - 1].rideEnd));
 
   const json = {
@@ -1639,11 +1651,13 @@ function exportPlan() {
     steps: state.steps.map(s => ({
       attractionId: s.attractionId, name: s.name, category: s.category, reachable: s.reachable,
       walk: round1(s.walk), wait: round1(s.wait), ride: s.ride, total: round1(s.total),
+      walkFeet: Math.round(stepFeet(s.distPx)),
       walkStart: minToHM(s.walkStart), walkEnd: minToHM(s.walkEnd),
       waitStart: minToHM(s.waitStart), waitEnd: minToHM(s.waitEnd),
       rideStart: minToHM(s.rideStart), rideEnd: minToHM(s.rideEnd)
     })),
     totals: { walk: round1(totWalk), wait: round1(totWait), ride: round1(totRide),
+              walkFeet: Math.round(totFt),
               finish: minToHM(state.steps[state.steps.length - 1].rideEnd) }
   };
 
@@ -1907,9 +1921,8 @@ function segmentAt(ev) {
 const segTip = document.getElementById("segTip");
 function showSegTip(i, ev) {
   const s = state.steps[i];
-  const feet = Math.round(s.distPx * ftPerPx());
   segTip.innerHTML = "<b>Walk to " + esc(s.name) + "</b><br>" +
-    feet.toLocaleString() + " ft · " + fmtDur(s.walk) + " walk · arrive " + minToHM(s.walkEnd);
+    fmtFeet(stepFeet(s.distPx)) + " · " + fmtDur(s.walk) + " walk · arrive " + minToHM(s.walkEnd);
   segTip.style.left = (ev.clientX + 14) + "px";
   segTip.style.top = (ev.clientY + 14) + "px";
   segTip.style.display = "block";
