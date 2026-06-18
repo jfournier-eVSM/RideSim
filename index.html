@@ -14,6 +14,7 @@
     --walk: #5cc8ff;
     --wait: #ff8a5c;
     --ride: #9d7bff;
+    --rest: #57d9a3;
     --text: #e6ecf5;
     --muted: #8a98b0;
     --good: #5fd38a;
@@ -83,6 +84,15 @@
   .attr-item .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent2); flex: none; }
   .attr-item .nm { flex: 1; font-size: 13px; }
   .attr-item .meta { font-size: 11px; color: var(--muted); }
+
+  /* category filter chips */
+  .attr-filter { display: flex; gap: 6px; padding: 0 12px 8px; }
+  .attr-filter .chip {
+    flex: 1; padding: 4px 8px; font-size: 11px; border-radius: 12px; opacity: .45;
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+  }
+  .attr-filter .chip.active { opacity: 1; border-color: var(--accent); }
+  .attr-filter .chip .swatch { width: 9px; height: 9px; border-radius: 50%; display: inline-block; vertical-align: -1px; margin-right: 4px; }
 
   /* canvas wrap */
   .canvas-wrap { position: relative; flex: 1; min-height: 0; background:
@@ -168,6 +178,7 @@
   .tl-row.walk .bar { background: var(--walk); }
   .tl-row.wait .bar { background: var(--wait); }
   .tl-row.ride .bar { background: var(--ride); }
+  .tl-row.dine .bar { background: var(--rest); }
   .summary { padding: 10px 12px; border-top: 1px solid var(--border); font-size: 13px; }
   .summary .big { font-size: 22px; font-weight: 700; color: var(--accent2); }
   .summary .row { display: flex; justify-content: space-between; margin-top: 4px; color: var(--muted); }
@@ -249,6 +260,10 @@
   <!-- LEFT: attraction picker -->
   <div class="col left">
     <div class="section-title">Attractions — click to add</div>
+    <div class="attr-filter" id="attrFilter">
+      <button class="chip active" data-cat="ride"><span class="swatch" style="background:var(--accent2)"></span>Rides</button>
+      <button class="chip active" data-cat="restaurant"><span class="swatch" style="background:var(--rest)"></span>Dining</button>
+    </div>
     <div class="scroll" id="attrList"></div>
   </div>
 
@@ -272,7 +287,8 @@
       </div>
       <div class="map-legend">
         <div class="row"><span class="swatch" style="background:var(--walk)"></span> Walk path</div>
-        <div class="row"><span class="swatch" style="background:var(--accent2);width:10px;height:10px;border-radius:50%"></span> Attraction</div>
+        <div class="row"><span class="swatch" style="background:var(--accent2);width:10px;height:10px;border-radius:50%"></span> Ride</div>
+        <div class="row"><span class="swatch" style="background:var(--rest);width:10px;height:10px;border-radius:50%"></span> Restaurant</div>
         <div class="row"><span class="swatch" style="background:#46557a;width:5px;height:5px;border-radius:50%"></span> Path junction</div>
       </div>
     </div>
@@ -329,6 +345,17 @@
    ========================================================================= */
 
 const WALK_FT_PER_MIN = 88; // ~3 mph
+
+// Attraction categories. A "restaurant" is an attraction with no wait time
+// but a duration (like a ride) — it just gets its own color/category.
+function attrCat(a) { return a && a.category === "restaurant" ? "restaurant" : "ride"; }
+// Marker colors per category: { off: not in sequence, on: in sequence }.
+const ATTR_COLORS = {
+  ride:       { off: "#ffcc4d", on: "#5cc8ff" },
+  restaurant: { off: "#57d9a3", on: "#2bb487" }
+};
+// Which categories are shown in the picker / on the map (toggled by the chips).
+const catFilter = { ride: true, restaurant: true };
 
 /* ---------- Embedded sample data ---------------------------------------- */
 const SAMPLE = {};
@@ -818,7 +845,10 @@ SAMPLE.attractions = [
   { "id": "train_station", "name": "Train Station", "entranceNodeId": "train_station_in", "exitNodeId": "train_station_out", "displayLocation": { "x": 973, "y": 1259 }, "rideDuration": 5 },
   { "id": "monsters", "name": "Monsters", "entranceNodeId": "monsters_in", "exitNodeId": "monsters_out", "displayLocation": { "x": 1312, "y": 876 }, "rideDuration": 5 },
   { "id": "begin", "name": "Begin", "entranceNodeId": "begin_in", "exitNodeId": "begin_out", "displayLocation": { "x": 973, "y": 1325 }, "rideDuration": 0 },
-  { "id": "water_fountain", "name": "Water Fountain", "entranceNodeId": "water_fountain_in", "exitNodeId": "water_fountain_out", "displayLocation": { "x": 916, "y": 668 }, "rideDuration": 1 }
+  { "id": "water_fountain", "name": "Water Fountain", "entranceNodeId": "water_fountain_in", "exitNodeId": "water_fountain_out", "displayLocation": { "x": 916, "y": 668 }, "rideDuration": 1 },
+  { "id": "skipper_canteen", "name": "Skipper Canteen", "entranceNodeId": "node5", "exitNodeId": "node5", "displayLocation": { "x": 357, "y": 868 }, "rideDuration": 50, "category": "restaurant" },
+  { "id": "caseys_corner", "name": "Casey's Corner", "entranceNodeId": "node28", "exitNodeId": "node28", "displayLocation": { "x": 811, "y": 635 }, "rideDuration": 25, "category": "restaurant" },
+  { "id": "be_our_guest", "name": "Be Our Guest", "entranceNodeId": "node42", "exitNodeId": "node42", "displayLocation": { "x": 931, "y": 427 }, "rideDuration": 45, "category": "restaurant" }
 ];
 // @RIDESIM:ATTR:END
 
@@ -1036,13 +1066,15 @@ function computeSequence() {
     const reachable = !!route;
 
     const walkStart = curTime, walkEnd = walkStart + walk;
-    const wait = interpWait(attrId, walkEnd);
+    const category = attrCat(a);
+    // restaurants have no queue — only walk + dining duration
+    const wait = category === "restaurant" ? 0 : interpWait(attrId, walkEnd);
     const waitStart = walkEnd, waitEnd = waitStart + wait;
     const ride = a.rideDuration || 0;
     const rideStart = waitEnd, rideEnd = rideStart + ride;
 
     steps.push({
-      attractionId: attrId, name: a.name,
+      attractionId: attrId, name: a.name, category,
       pathIds, routeCoords,
       reachable, distPx, walk, wait, ride,
       walkStart, walkEnd, waitStart, waitEnd, rideStart, rideEnd,
@@ -1260,11 +1292,14 @@ function draw(marker) {
   const sz = attrSize();
   state.attractions.forEach(a => {
     const inSeq = state.sequence.indexOf(a.id);
+    const cat = attrCat(a);
+    // hide a filtered-out category, but always keep sequenced ones visible
+    if (!catFilter[cat] && inSeq < 0) return;
     const loc = a.displayLocation || state.nodes.get(a.entranceNodeId);
     const X = tx(loc.x), Y = ty(loc.y);
     const hot = a.id === hoverAttr;
     ctx.beginPath(); ctx.arc(X, Y, hot ? sz.hot : sz.r, 0, 7);
-    ctx.fillStyle = inSeq >= 0 ? "#5cc8ff" : "#ffcc4d"; ctx.fill();
+    ctx.fillStyle = inSeq >= 0 ? ATTR_COLORS[cat].on : ATTR_COLORS[cat].off; ctx.fill();
     ctx.lineWidth = 2; ctx.strokeStyle = hot ? "#fff" : "#0f1420"; ctx.stroke();
     if (inSeq >= 0) {
       ctx.fillStyle = "#08263a"; ctx.font = "bold " + sz.font + "px sans-serif";
@@ -1342,11 +1377,12 @@ function renderAttrList() {
   const el = document.getElementById("attrList");
   el.innerHTML = "";
   const sorted = Array.from(state.attractions.values())
+    .filter(a => catFilter[attrCat(a)])
     .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, undefined, { sensitivity: "base", numeric: true }));
   sorted.forEach(a => {
     const div = document.createElement("div");
     div.className = "attr-item";
-    div.innerHTML = '<span class="dot"></span><span class="nm">' + esc(a.name) +
+    div.innerHTML = '<span class="dot" style="background:' + ATTR_COLORS[attrCat(a)].off + '"></span><span class="nm">' + esc(a.name) +
       '</span><span class="meta">' + (a.rideDuration || 0) + 'm</span>';
     div.onclick = () => { state.sequence.push(a.id); refresh(); };
     div.onmouseenter = () => {
@@ -1409,11 +1445,10 @@ function renderTimeline() {
     const box = document.createElement("div");
     box.className = "tl-step";
     const warn = s.reachable ? "" : ' <span style="color:#ff8a8a">(no path!)</span>';
-    const defs = [
-      ["walk", "Walk to " + s.name, s.walk, s.walkStart, s.walkEnd],
-      ["wait", "Wait for " + s.name, s.wait, s.waitStart, s.waitEnd],
-      ["ride", "Ride " + s.name, s.ride, s.rideStart, s.rideEnd]
-    ];
+    const isRest = s.category === "restaurant";
+    const defs = [["walk", "Walk to " + s.name, s.walk, s.walkStart, s.walkEnd]];
+    if (!isRest) defs.push(["wait", "Wait for " + s.name, s.wait, s.waitStart, s.waitEnd]);
+    defs.push([isRest ? "dine" : "ride", (isRest ? "Eat at " : "Ride ") + s.name, s.ride, s.rideStart, s.rideEnd]);
     const rows = defs.map(d => {
       const wpct = Math.max(4, (d[2] / maxSpan) * 120);
       const dist = d[0] === "walk" ? ' &middot; ' + fmtFeet(stepFeet(s.distPx)) : '';
@@ -1523,8 +1558,9 @@ function renderAnimAt(clock) {
       stepI = i; phase = "ride";
       const a = state.attractions.get(s.attractionId);
       const disp = (a && a.displayLocation) || state.nodes.get(s.entranceNodeId);
-      marker = { x: disp.x, y: disp.y, color: "#9d7bff" };
-      info = "🎢 Riding " + s.name;
+      const isRest = s.category === "restaurant";
+      marker = { x: disp.x, y: disp.y, color: isRest ? "#57d9a3" : "#9d7bff" };
+      info = (isRest ? "🍽 Eating at " : "🎢 Riding ") + s.name;
       break;
     }
   }
@@ -1539,8 +1575,9 @@ function renderAnimAt(clock) {
 
   const np = document.getElementById("nowPlaying");
   np.classList.add("show");
-  const colors = { walk: "var(--walk)", wait: "var(--wait)", ride: "var(--ride)", done: "var(--good)" };
-  const labels = { walk: "WALK", wait: "WAIT", ride: "RIDE", done: "DONE" };
+  const stepRest = stepI >= 0 && state.steps[stepI].category === "restaurant";
+  const colors = { walk: "var(--walk)", wait: "var(--wait)", ride: stepRest ? "var(--rest)" : "var(--ride)", done: "var(--good)" };
+  const labels = { walk: "WALK", wait: "WAIT", ride: stepRest ? "DINE" : "RIDE", done: "DONE" };
   np.innerHTML = '<span class="badge" style="background:' + colors[phase] + ';color:#0f1420">' +
     labels[phase] + '</span><span>' + esc(info) + '</span>' +
     '<span style="color:var(--muted)">🕐 ' + minToHM(absT) + '</span>';
@@ -1549,7 +1586,8 @@ function renderAnimAt(clock) {
   document.querySelectorAll(".tl-row").forEach(r => r.style.background = "");
   if (stepI >= 0) {
     const rows = document.querySelectorAll('.tl-row[data-step="' + stepI + '"]');
-    const idx = { walk: 0, wait: 1, ride: 2 }[phase];
+    // restaurants omit the wait row, so their dine row is index 1, not 2
+    const idx = phase === "walk" ? 0 : phase === "wait" ? 1 : (stepRest ? 1 : 2);
     if (rows[idx]) rows[idx].style.background = "rgba(92,200,255,0.14)";
   }
 }
@@ -1588,10 +1626,12 @@ function exportPlan() {
   lines.push(Array(49).join("="));
   state.steps.forEach((s, i) => {
     lines.push("");
-    lines.push((i + 1) + ". " + s.name + (s.reachable ? "" : "  [NO PATH FOUND]"));
+    const isRest = s.category === "restaurant";
+    lines.push((i + 1) + ". " + s.name + (isRest ? " [restaurant]" : "") + (s.reachable ? "" : "  [NO PATH FOUND]"));
     lines.push("   " + minToHM(s.walkStart) + " - " + minToHM(s.walkEnd) + "  Walk to " + s.name + " (" + fmtDur(s.walk) + ", " + fmtFeet(stepFeet(s.distPx)) + ")");
-    lines.push("   " + minToHM(s.waitStart) + " - " + minToHM(s.waitEnd) + "  Wait (" + fmtDur(s.wait) + ")");
-    lines.push("   " + minToHM(s.rideStart) + " - " + minToHM(s.rideEnd) + "  Ride (" + fmtDur(s.ride) + ")");
+    if (!isRest)
+      lines.push("   " + minToHM(s.waitStart) + " - " + minToHM(s.waitEnd) + "  Wait (" + fmtDur(s.wait) + ")");
+    lines.push("   " + minToHM(s.rideStart) + " - " + minToHM(s.rideEnd) + "  " + (isRest ? "Eat" : "Ride") + " (" + fmtDur(s.ride) + ")");
     lines.push("   Step total: " + fmtDur(s.total));
   });
   const totWalk = state.steps.reduce((a, x) => a + x.walk, 0);
@@ -1609,7 +1649,7 @@ function exportPlan() {
     startTime: minToHM(startMin),
     sequence: state.sequence.slice(),
     steps: state.steps.map(s => ({
-      attractionId: s.attractionId, name: s.name, reachable: s.reachable,
+      attractionId: s.attractionId, name: s.name, category: s.category, reachable: s.reachable,
       walk: round1(s.walk), wait: round1(s.wait), ride: s.ride, total: round1(s.total),
       walkFeet: Math.round(stepFeet(s.distPx)),
       walkStart: minToHM(s.walkStart), walkEnd: minToHM(s.walkEnd),
@@ -1637,7 +1677,7 @@ function download(name, content, type) {
 const HINTS = {
   nodes: 'Array of { id, name?, isAttraction, x, y } — node coordinates in pixels.',
   connections: 'Array of { from, to:[...] }, or { from, to:"id", points:[{x,y}...] } for a polyline edge (length follows the polyline).',
-  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration }.',
+  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration, category? }. category "restaurant" = no wait, different color; defaults to a ride.',
   waits: 'Tab-delimited: attraction_id  time_of_day(HH:MM)  avg_wait_minutes. Linearly interpolated.'
 };
 function openModal() {
@@ -1829,6 +1869,15 @@ document.getElementById("planToggle").onclick = () => {
   setPlanToggleUI(); draw();
 };
 setPlanToggleUI();
+// category filter chips (Rides / Dining)
+document.querySelectorAll("#attrFilter .chip").forEach(chip => {
+  chip.onclick = () => {
+    const cat = chip.dataset.cat;
+    catFilter[cat] = !catFilter[cat];
+    chip.classList.toggle("active", catFilter[cat]);
+    renderAttrList(); draw();
+  };
+});
 canvas.addEventListener("mousedown", bgDown);
 window.addEventListener("mousemove", bgMove);
 window.addEventListener("mouseup", bgUp);
@@ -1840,6 +1889,7 @@ function attractionAt(ev) {
   const sx = ev.clientX - rect.left, sy = ev.clientY - rect.top;
   let best = null, bestD = 12;
   state.attractions.forEach(a => {
+    if (!catFilter[attrCat(a)] && state.sequence.indexOf(a.id) < 0) return;
     const loc = a.displayLocation || state.nodes.get(a.entranceNodeId);
     if (!loc) return;
     const d = Math.hypot(tx(loc.x) - sx, ty(loc.y) - sy);
