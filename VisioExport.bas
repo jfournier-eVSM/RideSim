@@ -119,7 +119,7 @@ Public Sub ExportRideSim()
             Case "Node":     nodeShapes.Add shp
             Case "Entrance": entShapes.Add shp
             Case "Exit":     exitShapes.Add shp
-            Case "Attraction", "Restaurant"   ' a Restaurant is an attraction with category "restaurant"
+            Case "Attraction", "Restaurant", "Shop", "Pin"  ' all are attractions; category comes from the master
                 mAttrMap.Add AttrIdFor(shp, usedAttr), "k" & shp.id
                 attractions.Add shp
         End Select
@@ -132,6 +132,7 @@ Public Sub ExportRideSim()
     Dim entOf As Collection, exitOf As Collection
     Set entOf = New Collection   ' "k"&EntranceShapeID -> attrId
     Set exitOf = New Collection  ' "k"&ExitShapeID     -> attrId
+    Dim directOf As Collection: Set directOf = New Collection ' "k"&AttractionShapeID -> node ShapeID (non-ride single-node link)
     For Each shp In pg.Shapes
         If MasterRole(shp) = "" And shp.OneD Then
             Dim bShp As Visio.Shape, eShp As Visio.Shape
@@ -158,7 +159,17 @@ Public Sub ExportRideSim()
                         Case "Entrance": PutOnceKey entOf, "k" & oShp.id, aId, "Entrance", shp
                         Case "Exit":     PutOnceKey exitOf, "k" & oShp.id, aId, "Exit", shp
                         Case "Attraction": Warn "Line links two Attractions, ignored: " & shp.NameU
-                        Case Else: Warn "Attraction '" & aId & "' linked to a plain Node - link Attractions only to Entrance/Exit. Ignored."
+                        Case "Node"
+                            ' Rides need an Entrance + Exit; everything else (restaurant/
+                            ' shop/pin) hooks straight to a single node used for both.
+                            If CategoryOf(aShp) = "ride" Then
+                                Warn "Ride '" & aId & "' linked to a plain Node - rides use Entrance/Exit. Ignored."
+                            ElseIf KeyExists(directOf, "k" & aShp.id) Then
+                                Warn "'" & aId & "' already linked to a node; ignoring extra link from " & shp.NameU & "."
+                            Else
+                                directOf.Add CStr(oShp.id), "k" & aShp.id
+                            End If
+                        Case Else: Warn "Attraction '" & aId & "' linked to an unexpected shape. Ignored."
                     End Select
                 ElseIf kb.id <> ke.id Then
                     edgeLines.Add shp           ' walkway edge; ids resolved in pass D
@@ -247,10 +258,20 @@ Public Sub ExportRideSim()
         aId = mAttrMap("k" & shp.id)
         Dim ac As Variant: ac = CenterPx(shp)
         Dim entId As String, exId As String
-        If KeyExists(assocEnt, aId) Then entId = assocEnt(aId) Else _
-            Warn "Attraction '" & aId & "' has no Entrance link (draw a line from it to its Entrance node)."
-        If KeyExists(assocExit, aId) Then exId = assocExit(aId) Else _
-            Warn "Attraction '" & aId & "' has no Exit link (draw a line from it to its Exit node)."
+        entId = "": exId = ""
+        If CategoryOf(shp) = "ride" Then
+            If KeyExists(assocEnt, aId) Then entId = assocEnt(aId) Else _
+                Warn "Ride '" & aId & "' has no Entrance link (draw a line from it to its Entrance node)."
+            If KeyExists(assocExit, aId) Then exId = assocExit(aId) Else _
+                Warn "Ride '" & aId & "' has no Exit link (draw a line from it to its Exit node)."
+        Else
+            ' restaurant/shop/pin: a single node link serves as both entrance and exit
+            If KeyExists(directOf, "k" & shp.id) Then
+                Dim nsid As String: nsid = directOf("k" & shp.id)
+                If KeyExists(mNodeMap, "k" & nsid) Then entId = mNodeMap("k" & nsid)(0): exId = entId
+            End If
+            If entId = "" Then Warn "'" & aId & "' has no node link (draw one line from it to any node)."
+        End If
         If attrCount > 0 Then attrJson = attrJson & "," & vbCrLf
         attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp), IsClosed(shp))
         attrCount = attrCount + 1
@@ -390,6 +411,8 @@ Private Function MasterRole(shp As Visio.Shape) As String
     Select Case True
         Case nm = "attraction", nu = "attraction": MasterRole = "Attraction"
         Case nm = "restaurant", nu = "restaurant": MasterRole = "Restaurant"
+        Case nm = "shop", nu = "shop", nm = "shops", nu = "shops": MasterRole = "Shop"
+        Case nm = "pin", nu = "pin", nm = "pins", nu = "pins": MasterRole = "Pin"
         Case nm = "entrance", nu = "entrance":     MasterRole = "Entrance"
         Case nm = "exit", nu = "exit":             MasterRole = "Exit"
         Case nm = "node", nu = "node":             MasterRole = "Node"
@@ -621,13 +644,16 @@ Private Function RoleOfShape(s As Visio.Shape) As String
     If KeyExists(mRole, "k" & s.id) Then RoleOfShape = mRole("k" & s.id)
 End Function
 
-' "restaurant" if the shape came from the Restaurant master, otherwise "ride".
-' (Restaurants are stored as attractions, so their original master role is kept
-'  in mRole and read back here when emitting JSON.)
+' Web category from the shape's master role. Attractions are all stored
+' together, so the original master role is kept in mRole and read back here.
 Private Function CategoryOf(shp As Visio.Shape) As String
     CategoryOf = "ride"
     If KeyExists(mRole, "k" & shp.id) Then
-        If mRole("k" & shp.id) = "Restaurant" Then CategoryOf = "restaurant"
+        Select Case mRole("k" & shp.id)
+            Case "Restaurant": CategoryOf = "restaurant"
+            Case "Shop":       CategoryOf = "shop"
+            Case "Pin":        CategoryOf = "pin"
+        End Select
     End If
 End Function
 
