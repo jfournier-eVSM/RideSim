@@ -49,6 +49,9 @@ Attribute VB_Name = "VisioExport"
 '                        numeric or text ("12 min").
 '                        Prop.WaitID      -> Queue-Times.com ride id, written as
 '                        "waitId" so the planner can show live wait times.
+'   On any attraction:   Prop.Hovertext   -> extra detail shown on map hover
+'                        (multi-line OK), written as "hoverText".
+'                        Prop.Closed      -> true = drawn gray (not open today).
 '
 ' SCALE BAR (sets real-world walking speed):
 '   Add two shapes named (or mastered) ScaleStart and ScaleEnd and a line
@@ -301,7 +304,7 @@ Public Sub ExportRideSim()
             End If
         End If
         If attrCount > 0 Then attrJson = attrJson & "," & vbCrLf
-        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp), IsClosed(shp), WaitIdOf(shp), accJson)
+        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp), IsClosed(shp), WaitIdOf(shp), accJson, PropStr(shp, "Hovertext"))
         attrCount = attrCount + 1
     Next
 
@@ -864,10 +867,11 @@ End Function
 
 Private Function AttractionJson(id As String, nm As String, entId As String, exId As String, _
                           x As Variant, y As Variant, ride As Double, cat As String, _
-                          closed As Boolean, waitId As String, accessIds As String) As String
-    ' Emit category/closed/waitId/accessNodeIds only when set; otherwise lines
-    ' match the original shape so the web app (which defaults category "ride",
-    ' closed false) is happy.
+                          closed As Boolean, waitId As String, accessIds As String, _
+                          hover As String) As String
+    ' Emit category/closed/waitId/accessNodeIds/hoverText only when set; otherwise
+    ' lines match the original shape so the web app (which defaults category
+    ' "ride", closed false) is happy.
     Dim catJson As String
     If cat <> "" And cat <> "ride" Then catJson = ", ""category"": """ & cat & """"
     Dim closedJson As String
@@ -876,10 +880,12 @@ Private Function AttractionJson(id As String, nm As String, entId As String, exI
     If waitId <> "" Then waitJson = ", ""waitId"": """ & JStr(waitId) & """"
     Dim accJson As String
     If accessIds <> "" Then accJson = ", ""accessNodeIds"": " & accessIds
+    Dim hoverJson As String
+    If Trim$(hover) <> "" Then hoverJson = ", ""hoverText"": """ & JStr(hover) & """"
     AttractionJson = "  { ""id"": """ & id & """, ""name"": """ & JStr(nm) & _
         """, ""entranceNodeId"": """ & entId & """, ""exitNodeId"": """ & exId & _
         """, ""displayLocation"": { ""x"": " & CLng(x) & ", ""y"": " & CLng(y) & _
-        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & closedJson & waitJson & accJson & " }"
+        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & closedJson & waitJson & accJson & hoverJson & " }"
 End Function
 
 ' Queue-Times ride id from the attraction's Shape Data (Prop.WaitID and aliases).
