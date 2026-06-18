@@ -206,7 +206,12 @@
   /* ---------- Mobile: stack the three columns vertically ---------------- */
   @media (max-width: 820px) {
     body { overflow: auto; }
-    header { padding: 8px 12px; gap: 10px; }
+    /* keep the controls pinned at the top while the page scrolls */
+    header {
+      padding: 8px 12px; gap: 10px;
+      position: sticky; top: 0; z-index: 30;
+      box-shadow: 0 4px 14px rgba(0,0,0,.45);
+    }
     header h1 { font-size: 14px; width: 100%; }
     .controls { margin-left: 0; gap: 8px; row-gap: 8px; }
 
@@ -1201,14 +1206,17 @@ function computeView() {
     maxX = Math.max(maxX, e.x + e.w); maxY = Math.max(maxY, e.y + e.h);
   }
   if (!isFinite(minX)) { view = { scale: 1, ox: 0, oy: 0 }; return; }
-  const pad = 70;
   const w = canvas.clientWidth, h = canvas.clientHeight;
-  const sx = (w - pad * 2) / Math.max(1, maxX - minX);
-  const sy = (h - pad * 2) / Math.max(1, maxY - minY);
+  // On phones a fixed 70px border would swallow most of a narrow canvas, so
+  // pad by a small fraction there — leaving the map ~90% of the width.
+  const padX = mobileMQ.matches ? w * 0.05 : 70;
+  const padY = mobileMQ.matches ? h * 0.05 : 70;
+  const sx = (w - padX * 2) / Math.max(1, maxX - minX);
+  const sy = (h - padY * 2) / Math.max(1, maxY - minY);
   const scale = Math.min(sx, sy);
   view.scale = scale;
-  view.ox = pad - minX * scale + (w - pad * 2 - (maxX - minX) * scale) / 2;
-  view.oy = pad - minY * scale + (h - pad * 2 - (maxY - minY) * scale) / 2;
+  view.ox = padX - minX * scale + (w - padX * 2 - (maxX - minX) * scale) / 2;
+  view.oy = padY - minY * scale + (h - padY * 2 - (maxY - minY) * scale) / 2;
 }
 function tx(x) { return x * view.scale + view.ox; }
 function ty(y) { return y * view.scale + view.oy; }
