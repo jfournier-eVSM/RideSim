@@ -1,0 +1,37 @@
+name: Snapshot queue times
+
+# Fetches the Queue-Times.com feed server-side (no browser CORS) and commits it
+# as queue_times.json, which GitHub Pages then serves same-origin. The planner
+# picks up that same-origin file first, so live waits work with no CORS proxy.
+#
+# Enable: Settings > Actions > General > Workflow permissions > Read and write.
+# GitHub schedules cron at best-effort ~5-min granularity (can run late).
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: queue-times
+  cancel-in-progress: true
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch feed
+        run: curl -sfS https://queue-times.com/parks/6/queue_times.json -o queue_times.json
+      - name: Commit if changed
+        run: |
+          if ! git diff --quiet -- queue_times.json; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add queue_times.json
+            git commit -m "Update queue times [skip ci]"
+            git push
+          fi
