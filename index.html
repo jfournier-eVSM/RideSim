@@ -253,7 +253,9 @@
 <header>
   <h1>🏰 Magic Kingdom <span>Ride Sequence Planner</span></h1>
   <div class="controls">
-    <label class="ctl">Start <input type="time" id="startTime" value="09:00"></label>
+    <label class="ctl">Start <input type="time" id="startTime" value="09:00">
+      <button id="nowBtn" title="Set start to the current time">Now</button></label>
+    <label class="ctl">From <select id="startLoc" title="Where you are right now — the day starts here"></select></label>
     <label class="ctl" style="display:none">ft/px <input type="number" id="ftPerPx" value="4" min="0.1" step="0.5" title="Feet per pixel — scales walk distance"></label>
     <label class="ctl">Map <input type="range" id="bgOpacity" min="0" max="100" value="100" style="width:70px" title="Background image opacity"></label>
     <button id="bgAdjustBtn" style="display:none" title="Drag to move the map, scroll to scale it, to align it with the nodes">⤢ Align Map</button>
@@ -1154,6 +1156,8 @@ function buildFromData(nodes, connections, attractions, waitsTSV) {
     state.waits.get(id).push({ t: hmToMin(tod), w: parseFloat(w) });
   });
   state.waits.forEach(arr => arr.sort((a, b) => a.t - b.t));
+
+  populateStartSelect();   // refresh the "From" location options for the new data
 }
 
 /* ---------- Dijkstra ---------------------------------------------------- */
@@ -1234,12 +1238,37 @@ function nearestAccess(from, ids) {
 }
 
 /* ---------- Sequence simulation ----------------------------------------- */
+let startOverride = null;   // node id chosen in the "From" dropdown, else null
 function startNode() {
+  if (startOverride && state.nodes.has(startOverride)) return startOverride;  // "I'm here"
   if (state.nodes.has("start")) return "start";   // a node named "Start" in Visio
-  if (state.nodes.has("begin")) return "begin";  
+  if (state.nodes.has("begin")) return "begin";
   if (state.nodes.has("begin_in")) return "begin_in";
   if (state.nodes.has("Exit")) return "Exit";
   return state.nodes.keys().next().value;
+}
+// "From" dropdown: every named place (rides/restaurants/shops/pins) plus any
+// named graph nodes. Selecting one routes the day from there ("I'm here").
+function populateStartSelect() {
+  const sel = document.getElementById("startLoc");
+  if (!sel) return;
+  const prev = sel.value;
+  let html = '<option value="">Default start</option>';
+  Array.from(state.attractions.values())
+    .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id, undefined, { sensitivity: "base", numeric: true }))
+    .forEach(a => { if (a.exitNodeId || a.entranceNodeId) html += '<option value="attr:' + esc(a.id) + '">' + esc(a.name || a.id) + '</option>'; });
+  const named = Array.from(state.nodes.values()).filter(n => n.name && n.name.trim());
+  named.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }));
+  named.forEach(n => html += '<option value="node:' + esc(n.id) + '">' + esc(n.name) + '</option>');
+  sel.innerHTML = html;
+  sel.value = prev;                 // keep selection across rebuilds when still valid
+  startOverride = resolveStartNode(sel.value);
+}
+function resolveStartNode(v) {
+  if (!v) return null;
+  if (v.indexOf("node:") === 0) return v.slice(5);
+  if (v.indexOf("attr:") === 0) { const a = state.attractions.get(v.slice(5)); return a ? (a.exitNodeId || a.entranceNodeId) : null; }
+  return null;
 }
 
 function computeSequence() {
@@ -1536,6 +1565,7 @@ function draw(marker) {
       fill = attrClosed(a) ? CLOSED_COLOR : (inSeq >= 0 ? ATTR_COLORS[cat].on : ATTR_COLORS[cat].off);
       inside = (inSeq >= 0 && cat !== "pin") ? String(inSeq + 1) : "";  // too small to hold a number
     }
+    ctx.globalAlpha = 0.8;                              // named nodes 20% transparent
     ctx.beginPath(); ctx.arc(X, Y, radius, 0, 7);
     ctx.fillStyle = fill; ctx.fill();
     ctx.lineWidth = 2; ctx.strokeStyle = hot ? "#fff" : "#0f1420"; ctx.stroke();
@@ -1545,6 +1575,7 @@ function draw(marker) {
       ctx.fillText(inside, X, Y);
     }
     if (live && inSeq >= 0) drawSeqBadge(X, Y, radius, inSeq + 1);  // keep order visible
+    ctx.globalAlpha = 1;
   });
   if (hoverAttr) {
     const a = state.attractions.get(hoverAttr);
@@ -2305,6 +2336,13 @@ document.getElementById("stopBtn").onclick = stop;
 document.getElementById("exportBtn").onclick = exportPlan;
 document.getElementById("clearSeq").onclick = () => { state.sequence = []; stop(); refresh(); };
 document.getElementById("startTime").onchange = () => { stop(); refresh(); };
+document.getElementById("nowBtn").onclick = () => {
+  const d = new Date();
+  document.getElementById("startTime").value =
+    String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  stop(); refresh();
+};
+document.getElementById("startLoc").onchange = (e) => { startOverride = resolveStartNode(e.target.value); stop(); refresh(); };
 document.getElementById("ftPerPx").onchange = () => { stop(); refresh(); };
 document.getElementById("bgOpacity").value = Math.round(bg.opacity * 100);
 document.getElementById("bgOpacity").oninput = (e) => {
