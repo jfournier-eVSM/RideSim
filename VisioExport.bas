@@ -916,17 +916,35 @@ Private Function AttractionJson(id As String, nm As String, entId As String, exI
 End Function
 
 ' Queue-Times ride id from the attraction's Shape Data (Prop.WaitID and aliases).
+' Tries the internal name first, then falls back to matching the visible LABEL
+' (Visio's internal NameU can differ from the label you typed). Numeric ids are
+' normalized to a plain integer string so "284.00" matches the feed's "284".
 Private Function WaitIdOf(shp As Visio.Shape) As String
     On Error Resume Next
-    Dim names As Variant: names = Array("WaitID", "WaitId", "QueueID", "QueueTimesID")
-    Dim i As Long, cell As String, vstr As String
+    Dim names As Variant: names = Array("WaitID", "WaitId", "QueueID", "QueueTimesID", "QTID", "LiveID")
+    Dim i As Long, Row As Long, vstr As String
+    ' 1) by internal name: Prop.WaitID etc.
     For i = LBound(names) To UBound(names)
-        cell = "Prop." & names(i)
-        If shp.CellExistsU(cell, 0) Then
-            vstr = Trim$(shp.CellsU(cell).ResultStr(""))
-            If vstr <> "" Then WaitIdOf = vstr: Exit Function
+        If shp.CellExistsU("Prop." & names(i), 0) Then
+            vstr = Trim$(shp.CellsU("Prop." & names(i)).ResultStr(""))
+            If vstr <> "" Then WaitIdOf = NormalizeId(vstr): Exit Function
         End If
     Next i
+    ' 2) by visible label (handles fields whose internal name was auto-generated)
+    For Row = 0 To shp.RowCount(visSectionProp) - 1
+        Dim lbl As String: lbl = shp.CellsSRC(visSectionProp, Row, 2).ResultStr(visNone)
+        For i = LBound(names) To UBound(names)
+            If lbl Like names(i) Then
+                vstr = Trim$(shp.CellsSRC(visSectionProp, Row, 0).ResultStr(""))
+                If vstr <> "" Then WaitIdOf = NormalizeId(vstr): Exit Function
+            End If
+        Next i
+    Next Row
+End Function
+
+' Plain-integer string for numeric ids ("284.00" -> "284"); leave text as-is.
+Private Function NormalizeId(ByVal s As String) As String
+    If IsNumeric(s) Then NormalizeId = CStr(CLng(Val(s))) Else NormalizeId = s
 End Function
 
 ' True when the shape's "Closed" shape data is set (not open at the park today).
