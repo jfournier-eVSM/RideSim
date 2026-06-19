@@ -173,6 +173,9 @@
   .seq-item .idx { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #08263a;
     font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: none; cursor: pointer; }
   .seq-item .nm { flex: 1; font-size: 13px; }
+  .seq-item .dur { width: 46px; background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 5px; padding: 2px 5px; font-size: 12px; text-align: right; cursor: text; }
+  .seq-item .durunit { font-size: 11px; color: var(--muted); margin: 0 2px 0 4px; }
   .seq-item .rm { color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 4px; }
   .seq-item .rm:hover { color: #ff8a8a; background: rgba(255,80,80,.12); }
   .empty-hint { color: var(--muted); font-size: 12px; padding: 12px; text-align: center; font-style: italic; }
@@ -1783,11 +1786,28 @@ function renderSeq() {
     const a = state.attractions.get(id);
     const div = document.createElement("div");
     div.className = "seq-item"; div.draggable = true; div.dataset.idx = i;
+    const cat = a ? attrCat(a) : "ride";
+    // editable dwell time for shops/restaurants (your estimate); rides are fixed
+    const durHtml = (cat === "restaurant" || cat === "shop")
+      ? '<input class="dur" type="number" min="0" step="5" inputmode="numeric" value="' + (a.rideDuration || 0) + '" title="Minutes you\'ll spend here"><span class="durunit">min</span>'
+      : "";
     div.innerHTML = '<span class="idx" title="Tap to change position">' + (i + 1) + '</span><span class="nm">' +
-      esc(a ? a.name : id) + '</span><span class="rm" title="Remove">&#10005;</span>';
+      esc(a ? a.name : id) + '</span>' + durHtml + '<span class="rm" title="Remove">&#10005;</span>';
     div.querySelector(".rm").onclick = (e) => { e.stopPropagation(); state.sequence.splice(i, 1); refresh(); };
     // tap the number to move it (works on touch where drag doesn't)
     div.querySelector(".idx").onclick = (e) => { e.stopPropagation(); moveSeqItem(i); };
+    const durEl = div.querySelector(".dur");
+    if (durEl) {
+      durEl.draggable = false;
+      durEl.onpointerdown = (e) => e.stopPropagation();   // don't start a drag from the field
+      durEl.onclick = (e) => e.stopPropagation();
+      durEl.onchange = () => {                              // commit on blur/Enter, then recompute
+        let v = parseInt(durEl.value, 10);
+        if (isNaN(v) || v < 0) v = 0;
+        a.rideDuration = v;
+        refresh();
+      };
+    }
     div.addEventListener("dragstart", () => { dragIdx = i; div.classList.add("dragging"); });
     div.addEventListener("dragend", () => {
       div.classList.remove("dragging");
