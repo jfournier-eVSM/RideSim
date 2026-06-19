@@ -1316,7 +1316,7 @@ let hoverAttr = null; // attraction id whose label is shown on map hover
 let showPlan = localStorage.getItem("ridesim.showPlan") === "1"; // highlight the day's route
 let hoverStep = null; // step index whose walk segment is hovered (shows dist/time)
 let showLiveWaits = localStorage.getItem("ridesim.liveWaits") === "1"; // live queue-times overlay
-const liveWaits = { byId: new Map(), fetchedAt: 0, error: false };
+const liveWaits = { byId: new Map(), fetchedAt: 0, error: false, errMsg: "" };
 let liveTimer = null;
 const QT_URL = "https://queue-times.com/parks/6/queue_times.json";
 // queue-times.com sends no CORS header, so a direct fetch is blocked when the
@@ -1636,9 +1636,32 @@ function wrapText(text, font, maxW) {
 }
 
 /* ---------- Live wait times (Queue-Times.com) --------------------------- */
+// Live wait for an attraction: explicit waitId first, else fall back to
+// matching the ride's name against the Queue-Times feed (short names like
+// "Space" / "Tron" are substrings of the official names). Cached per fetch.
+let liveMatch = { at: -1, map: new Map() };
+function normName(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
+function matchLiveByName(name) {
+  const n = normName(name);
+  if (n.length < 3) return null;
+  let partial = null;
+  for (const e of liveWaits.byId.values()) {
+    const ln = normName(e.name);
+    if (!ln) continue;
+    if (ln === n) return e;                                   // exact wins
+    if (!partial && n.length >= 4 && (ln.includes(n) || n.includes(ln))) partial = e;
+  }
+  return partial;
+}
 function liveWaitFor(a) {
-  if (!a || a.waitId == null || a.waitId === "") return null;
-  return liveWaits.byId.get(String(a.waitId)) || null;
+  if (!a) return null;
+  if (a.waitId != null && a.waitId !== "") return liveWaits.byId.get(String(a.waitId)) || null;
+  if (attrCat(a) !== "ride") return null;                     // only rides are in the feed
+  if (liveMatch.at !== liveWaits.fetchedAt) liveMatch = { at: liveWaits.fetchedAt, map: new Map() };
+  if (liveMatch.map.has(a.id)) return liveMatch.map.get(a.id);
+  const m = matchLiveByName(a.name);
+  liveMatch.map.set(a.id, m);
+  return m;
 }
 function waitColor(w) {
   if (w <= 15) return "#3fae5a";
@@ -1680,9 +1703,10 @@ async function fetchLiveWaits() {
     const add = r => { if (r && r.id != null) m.set(String(r.id), { wait: r.wait_time, open: !!r.is_open, name: r.name }); };
     (data.lands || []).forEach(l => (l.rides || []).forEach(add));
     (data.rides || []).forEach(add);
-    liveWaits.byId = m; liveWaits.fetchedAt = Date.now(); liveWaits.error = false;
+    liveWaits.byId = m; liveWaits.fetchedAt = Date.now(); liveWaits.error = false; liveWaits.errMsg = "";
   } else {
     liveWaits.error = true;
+    liveWaits.errMsg = lastErr ? String(lastErr.message || lastErr).slice(0, 60) : "all sources failed";
     console.warn("Queue-Times fetch failed (all sources):", lastErr);
   }
   updateQtCredit();
@@ -1696,9 +1720,16 @@ function updateQtCredit() {
   if (!showLiveWaits) { el.style.display = "none"; return; }
   el.style.display = "block";
   let meta = "";
-  if (liveWaits.fetchedAt) meta = " · updated " + hmFromDate(new Date(liveWaits.fetchedAt));
-  else if (liveWaits.error) meta = " · unavailable";
-  else meta = " · loading…";
+  if (liveWaits.fetchedAt) {
+    meta = " · updated " + hmFromDate(new Date(liveWaits.fetchedAt));
+    // on-screen diagnostic (no console on mobile): how many rides matched a live wait
+    let rides = 0, matched = 0;
+    state.attractions.forEach(a => { if (attrCat(a) === "ride") { rides++; if (liveWaitFor(a)) matched++; } });
+    meta += " · " + matched + "/" + rides + " rides matched";
+    if (matched === 0) meta += " — set WaitID or check names";
+  } else if (liveWaits.error) {
+    meta = " · unavailable" + (liveWaits.errMsg ? " (" + liveWaits.errMsg + ")" : "");
+  } else meta = " · loading…";
   el.innerHTML = '<a href="https://queue-times.com/en-US" target="_blank" rel="noopener">Powered by Queue-Times.com</a>' +
     '<span class="qt-meta">' + meta + '</span>';
 }
@@ -2223,7 +2254,8 @@ document.getElementById("liveToggle").onclick = () => {
   }
 };
 setLiveToggleUI();
-if (showLiveWaits) { fetchLiveWaits(); startLiveRefresh(); }  // persisted on -> load now
+fetchLiveWaits();                                   // fetch once on startup so data is ready
+if (showLiveWaits) startLiveRefresh();              // keep refreshing only when the overlay is on
 // refetch when the tab is refocused and the data is stale (>5 min)
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && showLiveWaits && Date.now() - liveWaits.fetchedAt > 5 * 60 * 1000) fetchLiveWaits();
