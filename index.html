@@ -171,7 +171,7 @@
   .seq-item.dragging { opacity: .4; }
   .seq-item.drop-target { border-color: var(--accent); }
   .seq-item .idx { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #08263a;
-    font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: none; }
+    font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: none; cursor: pointer; }
   .seq-item .nm { flex: 1; font-size: 13px; }
   .seq-item .rm { color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 4px; }
   .seq-item .rm:hover { color: #ff8a8a; background: rgba(255,80,80,.12); }
@@ -1783,9 +1783,11 @@ function renderSeq() {
     const a = state.attractions.get(id);
     const div = document.createElement("div");
     div.className = "seq-item"; div.draggable = true; div.dataset.idx = i;
-    div.innerHTML = '<span class="idx">' + (i + 1) + '</span><span class="nm">' +
+    div.innerHTML = '<span class="idx" title="Tap to change position">' + (i + 1) + '</span><span class="nm">' +
       esc(a ? a.name : id) + '</span><span class="rm" title="Remove">&#10005;</span>';
     div.querySelector(".rm").onclick = (e) => { e.stopPropagation(); state.sequence.splice(i, 1); refresh(); };
+    // tap the number to move it (works on touch where drag doesn't)
+    div.querySelector(".idx").onclick = (e) => { e.stopPropagation(); moveSeqItem(i); };
     div.addEventListener("dragstart", () => { dragIdx = i; div.classList.add("dragging"); });
     div.addEventListener("dragend", () => {
       div.classList.remove("dragging");
@@ -1802,6 +1804,20 @@ function renderSeq() {
     });
     el.appendChild(div);
   });
+}
+// Prompt for a new 1-based position and move the item there (touch-friendly).
+function moveSeqItem(i) {
+  const n = state.sequence.length;
+  const a = state.attractions.get(state.sequence[i]);
+  const ans = prompt('Move "' + (a ? a.name : state.sequence[i]) + '" to position (1–' + n + '):', String(i + 1));
+  if (ans == null) return;
+  let pos = parseInt(ans, 10);
+  if (isNaN(pos)) return;
+  pos = Math.max(1, Math.min(n, pos)) - 1;   // clamp to range, 0-based
+  if (pos === i) return;
+  const m = state.sequence.splice(i, 1)[0];
+  state.sequence.splice(pos, 0, m);
+  refresh();
 }
 
 /* ---------- UI: timeline ------------------------------------------------ */
