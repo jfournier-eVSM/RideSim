@@ -1316,6 +1316,7 @@ function attrSize() {
 const bg = Object.assign({ scale: 1, offX: 0, offY: 0, opacity: 1 }, loadBg());
 let showGraph = localStorage.getItem("ridesim.showGraph") !== "0"; // node/edge network visibility
 let hoverAttr = null; // attraction id whose label is shown on map hover
+let labelHit = null;  // screen rect of the shown hover label (click/tap to add)
 let showPlan = localStorage.getItem("ridesim.showPlan") === "1"; // highlight the day's route
 let hoverStep = null; // step index whose walk segment is hovered (shows dist/time)
 let showLiveWaits = localStorage.getItem("ridesim.liveWaits") === "1"; // live queue-times overlay
@@ -1452,6 +1453,7 @@ function resizeCanvas() {
 
 function draw(marker) {
   const w = canvas.clientWidth, h = canvas.clientHeight;
+  labelHit = null;                 // re-established below if a hover label is drawn
   ctx.clearRect(0, 0, w, h);
 
   // background image placed via its own scale+offset transform, then through
@@ -1605,6 +1607,9 @@ function drawAttrLabel(a) {
   const extra = (a.hoverText || "").trim();
   if (extra) extra.split(/\r?\n/).forEach(para =>
     wrapText(para, subFont, maxW).forEach(l => lines.push({ t: l, font: subFont, color: "#b9c4d6" })));
+  // actionable hint — tapping/clicking the label adds it to the sequence
+  const inSeq = state.sequence.indexOf(a.id) >= 0;
+  lines.push({ t: inSeq ? "✓ in plan — tap to add again" : "＋ tap to add to plan", font: subFont, color: inSeq ? "#7bd88f" : "#9fd0ff" });
 
   const padX = 8, padY = 6, lineH = 15;
   let bw = 0;
@@ -1623,6 +1628,9 @@ function drawAttrLabel(a) {
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   let lineY = by + padY + lineH / 2;
   lines.forEach(l => { ctx.font = l.font; ctx.fillStyle = l.color; ctx.fillText(l.t, bx + bw / 2, lineY); lineY += lineH; });
+
+  // remember where the label is so a click/tap on it can add the attraction
+  labelHit = { x: bx, y: by, w: bw, h: bh, id: a.id, nodeY: Y };
 }
 // Greedy word-wrap to a max pixel width using the given font.
 function wrapText(text, font, maxW) {
@@ -2399,16 +2407,40 @@ function showSegTip(i, ev) {
 }
 function hideSegTip() { segTip.style.display = "none"; }
 
+// canvas-relative pointer position
+function canvasXY(ev) {
+  const r = canvas.getBoundingClientRect();
+  return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+}
+// pointer is over (or in the gap leading up to) the shown hover label
+function overLabel(ev) {
+  if (!labelHit) return false;
+  const p = canvasXY(ev), pad = 6;
+  const top = Math.min(labelHit.y, labelHit.nodeY) - pad;
+  const bot = Math.max(labelHit.y + labelHit.h, labelHit.nodeY) + pad;
+  return p.x >= labelHit.x - pad && p.x <= labelHit.x + labelHit.w + pad && p.y >= top && p.y <= bot;
+}
 canvas.addEventListener("mousemove", (ev) => {
   if (addMode || bgAdjust) {
     if (hoverAttr || hoverStep !== null) { hoverAttr = null; hoverStep = null; draw(); }
     hideSegTip(); canvas.style.cursor = ""; return;
   }
+  // keep the label up while the pointer is on it (so it can be clicked/tapped)
+  if (overLabel(ev)) { canvas.style.cursor = "pointer"; hideSegTip(); return; }
   const id = attractionAt(ev);
   const seg = id ? null : segmentAt(ev);      // attraction circle takes priority
   canvas.style.cursor = (id || seg !== null) ? "pointer" : "";
   if (seg !== null) showSegTip(seg, ev); else hideSegTip();
   if (id !== hoverAttr || seg !== hoverStep) { hoverAttr = id; hoverStep = seg; draw(); }
+});
+// tap/click on the hover label adds that attraction to the sequence
+canvas.addEventListener("click", (ev) => {
+  if (addMode || bgAdjust || !labelHit) return;
+  const p = canvasXY(ev);
+  if (p.x >= labelHit.x && p.x <= labelHit.x + labelHit.w && p.y >= labelHit.y && p.y <= labelHit.y + labelHit.h) {
+    state.sequence.push(labelHit.id);
+    refresh();
+  }
 });
 canvas.addEventListener("mouseleave", () => {
   hideSegTip();
