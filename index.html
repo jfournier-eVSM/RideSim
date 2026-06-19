@@ -1565,7 +1565,7 @@ function draw(marker) {
       fill = attrClosed(a) ? CLOSED_COLOR : (inSeq >= 0 ? ATTR_COLORS[cat].on : ATTR_COLORS[cat].off);
       inside = (inSeq >= 0 && cat !== "pin") ? String(inSeq + 1) : "";  // too small to hold a number
     }
-    ctx.globalAlpha = 0.8;                              // named nodes 20% transparent
+    ctx.globalAlpha = 0.7;                              // named nodes 30% transparent (fill + stroke)
     ctx.beginPath(); ctx.arc(X, Y, radius, 0, 7);
     ctx.fillStyle = fill; ctx.fill();
     ctx.lineWidth = 2; ctx.strokeStyle = hot ? "#fff" : "#0f1420"; ctx.stroke();
