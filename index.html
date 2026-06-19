@@ -2025,32 +2025,13 @@ function pointAlong(coords, frac) {
 function exportPlan() {
   if (!state.steps.length) { alert("Add attractions first."); return; }
   const startMin = hmToMin(document.getElementById("startTime").value || "09:00");
-  const lines = [];
-  lines.push("MAGIC KINGDOM — RIDE SEQUENCE PLAN");
-  lines.push("Start time: " + minToHM(startMin));
-  lines.push("Walking speed: " + WALK_FT_PER_MIN + " ft/min, scale " + ftPerPx() + " ft/px");
-  lines.push(Array(49).join("="));
-  state.steps.forEach((s, i) => {
-    lines.push("");
-    const meta = catMeta(s.category);
-    lines.push((i + 1) + ". " + s.name + (s.category !== "ride" ? " [" + s.category + "]" : "") + (s.reachable ? "" : "  [NO PATH FOUND]"));
-    lines.push("   " + minToHM(s.walkStart) + " - " + minToHM(s.walkEnd) + "  Walk to " + s.name + " (" + fmtDur(s.walk) + ", " + fmtFeet(stepFeet(s.distPx)) + ")");
-    if (s.category === "ride")
-      lines.push("   " + minToHM(s.waitStart) + " - " + minToHM(s.waitEnd) + "  Wait (" + fmtDur(s.wait) + ")");
-    lines.push("   " + minToHM(s.rideStart) + " - " + minToHM(s.rideEnd) + "  " + meta.short + " (" + fmtDur(s.ride) + ")");
-    lines.push("   Step total: " + fmtDur(s.total));
-  });
   const totWalk = state.steps.reduce((a, x) => a + x.walk, 0);
   const totWait = state.steps.reduce((a, x) => a + x.wait, 0);
   const totRide = state.steps.reduce((a, x) => a + x.ride, 0);
   const totFt = state.steps.reduce((a, x) => a + stepFeet(x.distPx), 0);
-  lines.push("");
-  lines.push(Array(49).join("="));
-  lines.push("TOTAL: " + fmtDur(totWalk + totWait + totRide) +
-    "  (walk " + fmtDur(totWalk) + ", wait " + fmtDur(totWait) + ", ride " + fmtDur(totRide) + ")");
-  lines.push("Distance walked: " + fmtDist(totFt) + " (" + fmtFeet(totFt) + ")");
-  lines.push("Finish: " + minToHM(state.steps[state.steps.length - 1].rideEnd));
+  const finish = state.steps[state.steps.length - 1].rideEnd;
 
+  // structured data — kept for a future "import this plan" feature
   const json = {
     startTime: minToHM(startMin),
     sequence: state.sequence.slice(),
@@ -2063,12 +2044,74 @@ function exportPlan() {
       rideStart: minToHM(s.rideStart), rideEnd: minToHM(s.rideEnd)
     })),
     totals: { walk: round1(totWalk), wait: round1(totWait), ride: round1(totRide),
-              walkFeet: Math.round(totFt),
-              finish: minToHM(state.steps[state.steps.length - 1].rideEnd) }
+              walkFeet: Math.round(totFt), finish: minToHM(finish) }
   };
 
-  download("mk-plan.txt", lines.join("\n"), "text/plain");
-  download("mk-plan.json", JSON.stringify(json, null, 2), "application/json");
+  const html = itineraryHtml(startMin, finish, totWalk, totWait, totRide, totFt, JSON.stringify(json, null, 2));
+  const w = window.open("", "_blank");
+  if (w) { w.document.open(); w.document.write(html); w.document.close(); }
+  else download("mk-itinerary.html", html, "text/html");   // popup blocked -> save instead
+}
+
+// 12-hour time for the human-facing itinerary (the app UI itself stays 24h).
+function t12(min) {
+  min = Math.round(min);
+  let h = Math.floor(min / 60) % 24; const m = ((min % 60) + 60) % 60;
+  const ap = h < 12 ? "AM" : "PM"; let hh = h % 12; if (hh === 0) hh = 12;
+  return hh + ":" + String(m).padStart(2, "0") + " " + ap;
+}
+const CAT_ICON = { ride: "🎢", restaurant: "🍽", shop: "🛍", pin: "📍" };
+// A clean, printable HTML day plan (own document so print/Save-PDF is native).
+function itineraryHtml(startMin, finish, totWalk, totWait, totRide, totFt, jsonStr) {
+  const steps = state.steps.map((s, i) => {
+    const ic = CAT_ICON[s.category] || "🎢";
+    const warn = s.reachable ? "" : ' <span class="warn">no path</span>';
+    let rows = '<div class="row"><span class="t">' + t12(s.walkStart) + '</span>Walk · ' +
+      fmtDur(s.walk) + ' · ' + fmtFeet(stepFeet(s.distPx)) + '</div>';
+    if (s.category === "ride" && s.wait > 0)
+      rows += '<div class="row"><span class="t">' + t12(s.waitStart) + '</span>Wait · ' + fmtDur(s.wait) + '</div>';
+    if (s.ride > 0)
+      rows += '<div class="row"><span class="t">' + t12(s.rideStart) + '</span>' + catMeta(s.category).short + ' · ' + fmtDur(s.ride) + '</div>';
+    return '<div class="step"><div class="head"><span class="n">' + (i + 1) + '</span>' +
+      '<span class="ic">' + ic + '</span><span class="nm">' + esc(s.name) + warn + '</span>' +
+      '<span class="span">' + t12(s.walkStart) + ' – ' + t12(s.rideEnd) + '</span></div>' +
+      '<div class="rows">' + rows + '</div></div>';
+  }).join("");
+
+  const totals = '<div class="totals">' +
+    '<div class="grand">' + fmtDur(totWalk + totWait + totRide) + ' total · finish ' + t12(finish) + '</div>' +
+    '<div class="tline"><span>🚶 Walking</span><span>' + fmtDur(totWalk) + ' · ' + fmtDist(totFt) + '</span></div>' +
+    '<div class="tline"><span>⏳ Waiting</span><span>' + fmtDur(totWait) + '</span></div>' +
+    '<div class="tline"><span>🎢 Doing</span><span>' + fmtDur(totRide) + '</span></div>' +
+    '<div class="tline"><span>📍 Stops</span><span>' + state.steps.length + '</span></div></div>';
+
+  const jsonHref = "data:application/json;charset=utf-8," + encodeURIComponent(jsonStr);
+  const css = 'body{font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;color:#1a2233;background:#f4f6fb;margin:0;padding:24px;}' +
+    '.wrap{max-width:680px;margin:0 auto;}h1{font-size:20px;margin:0 0 2px;}' +
+    '.sub{color:#6b7687;font-size:13px;margin:0 0 16px;}' +
+    '.btns{display:flex;gap:8px;margin:0 0 18px;flex-wrap:wrap;}' +
+    '.btns a,.btns button{font:inherit;font-size:13px;padding:7px 12px;border-radius:8px;border:1px solid #c7d0e0;background:#fff;color:#1a2233;cursor:pointer;text-decoration:none;}' +
+    '.btns .pri{background:#2b6cff;border-color:#2b6cff;color:#fff;}' +
+    '.step{background:#fff;border:1px solid #e1e7f2;border-radius:12px;padding:12px 14px;margin:0 0 10px;}' +
+    '.head{display:flex;align-items:center;gap:8px;}' +
+    '.head .n{width:22px;height:22px;border-radius:50%;background:#2b6cff;color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;}' +
+    '.head .ic{font-size:16px;}.head .nm{flex:1;font-weight:600;}.head .span{color:#6b7687;font-size:12px;white-space:nowrap;}' +
+    '.warn{color:#c0392b;font-size:11px;font-weight:600;}' +
+    '.rows{margin:8px 0 0;padding:0 0 0 30px;}' +
+    '.row{color:#3a4860;font-size:13px;display:flex;gap:8px;}' +
+    '.row .t{color:#8a96aa;width:64px;flex:none;font-variant-numeric:tabular-nums;}' +
+    '.totals{background:#1a2233;color:#fff;border-radius:12px;padding:14px 16px;margin-top:14px;}' +
+    '.totals .grand{font-size:17px;font-weight:700;margin-bottom:6px;}' +
+    '.tline{display:flex;justify-content:space-between;color:#c7d0e0;font-size:13px;margin-top:3px;}' +
+    '@media print{.btns{display:none;}body{background:#fff;padding:0;}.step,.totals{break-inside:avoid;}}';
+  return '<!doctype html><html><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<title>Magic Kingdom — Day Plan</title><style>' + css + '</style></head><body><div class="wrap">' +
+    '<h1>🏰 Magic Kingdom — Day Plan</h1>' +
+    '<p class="sub">Starts ' + t12(startMin) + ' · ' + state.steps.length + ' stops · finishes ' + t12(finish) + '</p>' +
+    '<div class="btns"><button class="pri" onclick="window.print()">🖨 Print / Save PDF</button>' +
+    '<a download="mk-plan.json" href="' + jsonHref + '">⬇ Data (JSON)</a></div>' +
+    steps + totals + '</div></body></html>';
 }
 function round1(x) { return Math.round(x * 10) / 10; }
 function download(name, content, type) {
