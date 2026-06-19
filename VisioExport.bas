@@ -127,7 +127,7 @@ Public Sub ExportRideSim()
             Case "Node":     nodeShapes.Add shp
             Case "Entrance": entShapes.Add shp
             Case "Exit":     exitShapes.Add shp
-            Case "Attraction", "Restaurant", "Shop", "Pin"  ' all are attractions; category comes from the master
+            Case "Attraction", "Restaurant", "Shop", "Pin", "Restroom"  ' all are attractions; category comes from the master
                 mAttrMap.Add AttrIdFor(shp, usedAttr), "k" & shp.id
                 attractions.Add shp
         End Select
@@ -447,6 +447,7 @@ Private Function MasterRole(shp As Visio.Shape) As String
         Case nm = "restaurant", nu = "restaurant": MasterRole = "Restaurant"
         Case nm = "shop", nu = "shop", nm = "shops", nu = "shops": MasterRole = "Shop"
         Case nm = "pin", nu = "pin", nm = "pins", nu = "pins": MasterRole = "Pin"
+        Case nm = "restroom", nu = "restroom", nm = "restrooms", nu = "restrooms": MasterRole = "Restroom"
         Case nm = "entrance", nu = "entrance":     MasterRole = "Entrance"
         Case nm = "exit", nu = "exit":             MasterRole = "Exit"
         Case nm = "node", nu = "node":             MasterRole = "Node"
@@ -687,6 +688,7 @@ Private Function CategoryOf(shp As Visio.Shape) As String
             Case "Restaurant": CategoryOf = "restaurant"
             Case "Shop":       CategoryOf = "shop"
             Case "Pin":        CategoryOf = "pin"
+            Case "Restroom":   CategoryOf = "restroom"
         End Select
     End If
 End Function

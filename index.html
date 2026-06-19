@@ -17,6 +17,7 @@
     --rest: #57d9a3;
     --shop: #c08cff;
     --pin: #ff8aa8;
+    --restroom: #6cb8e6;
     --text: #e6ecf5;
     --muted: #8a98b0;
     --good: #5fd38a;
@@ -194,6 +195,7 @@
   .tl-row.dine .bar { background: var(--rest); }
   .tl-row.shop .bar { background: var(--shop); }
   .tl-row.pin .bar { background: var(--pin); }
+  .tl-row.restroom .bar { background: var(--restroom); }
   .summary { padding: 10px 12px; border-top: 1px solid var(--border); font-size: 13px; }
   .summary .big { font-size: 22px; font-weight: 700; color: var(--accent2); }
   .summary .row { display: flex; justify-content: space-between; margin-top: 4px; color: var(--muted); }
@@ -288,6 +290,7 @@
       <button class="chip active" data-cat="restaurant"><span class="swatch" style="background:var(--rest)"></span>Dining</button>
       <button class="chip active" data-cat="shop"><span class="swatch" style="background:var(--shop)"></span>Shops</button>
       <button class="chip active" data-cat="pin"><span class="swatch" style="background:var(--pin)"></span>Pins</button>
+      <button class="chip active" data-cat="restroom"><span class="swatch" style="background:var(--restroom)"></span>Restrooms</button>
     </div>
     <div class="scroll" id="attrList"></div>
   </div>
@@ -316,6 +319,7 @@
         <div class="row"><span class="swatch" style="background:var(--rest);width:10px;height:10px;border-radius:50%"></span> Restaurant</div>
         <div class="row"><span class="swatch" style="background:var(--shop);width:10px;height:10px;border-radius:50%"></span> Shop</div>
         <div class="row"><span class="swatch" style="background:var(--pin);width:10px;height:10px;border-radius:50%"></span> Pin</div>
+        <div class="row"><span style="width:14px;text-align:center">🚻</span> Restroom</div>
         <div class="row"><span class="swatch" style="background:#6b7687;width:10px;height:10px;border-radius:50%"></span> Closed</div>
         <div class="row"><span class="swatch" style="background:#46557a;width:5px;height:5px;border-radius:50%"></span> Path junction</div>
       </div>
@@ -379,7 +383,7 @@ const WALK_FT_PER_MIN = 88; // ~3 mph
 // but a duration (like a ride) — it just gets its own color/category.
 // Categories: ride (queue + entrance/exit), restaurant/shop/pin (no queue,
 // hook to a single node). Anything unrecognized is treated as a ride.
-const CATEGORIES = ["ride", "restaurant", "shop", "pin"];
+const CATEGORIES = ["ride", "restaurant", "shop", "pin", "restroom"];
 function attrCat(a) {
   const c = a && a.category;
   return CATEGORIES.indexOf(c) >= 0 ? c : "ride";
@@ -392,18 +396,20 @@ const ATTR_COLORS = {
   ride:       { off: "#ffcc4d", on: "#5cc8ff" },
   restaurant: { off: "#57d9a3", on: "#2bb487" },
   shop:       { off: "#c08cff", on: "#9b6bff" },
-  pin:        { off: "#ff8aa8", on: "#ff5d86" }
+  pin:        { off: "#ff8aa8", on: "#ff5d86" },
+  restroom:   { off: "#6cb8e6", on: "#3a93d6" }
 };
 // Per-category labels/markers used by the timeline, itinerary and animation.
 const CAT_META = {
   ride:       { verb: "Ride ",    short: "Ride", phase: "RIDE", cls: "ride", anim: "🎢 Riding ",      barVar: "var(--ride)", color: "#9d7bff", wait: true },
   restaurant: { verb: "Eat at ",  short: "Eat",  phase: "DINE", cls: "dine", anim: "🍽 Eating at ",   barVar: "var(--rest)", color: "#57d9a3", wait: false },
   shop:       { verb: "Shop at ", short: "Shop", phase: "SHOP", cls: "shop", anim: "🛍 Shopping at ", barVar: "var(--shop)", color: "#c08cff", wait: false },
-  pin:        { verb: "Visit ",   short: "Stop", phase: "STOP", cls: "pin",  anim: "📍 Visiting ",    barVar: "var(--pin)",  color: "#ff8aa8", wait: false }
+  pin:        { verb: "Visit ",   short: "Stop", phase: "STOP", cls: "pin",  anim: "📍 Visiting ",    barVar: "var(--pin)",  color: "#ff8aa8", wait: false },
+  restroom:   { verb: "Break at ", short: "Break", phase: "BREAK", cls: "restroom", anim: "🚻 Break at ", barVar: "var(--restroom)", color: "#6cb8e6", wait: false, icon: "🚻", iconNode: true }
 };
 function catMeta(c) { return CAT_META[c] || CAT_META.ride; }
 // Which categories are shown in the picker / on the map (toggled by the chips).
-const catFilter = { ride: true, restaurant: true, shop: true, pin: true };
+const catFilter = { ride: true, restaurant: true, shop: true, pin: true, restroom: true };
 
 /* ---------- Embedded sample data ---------------------------------------- */
 const SAMPLE = {};
@@ -1017,7 +1023,8 @@ SAMPLE.attractions = [
   { "id": "launch_depot", "name": "Launch Depot", "entranceNodeId": "node140", "exitNodeId": "node140", "displayLocation": { "x": 1599, "y": 666 }, "rideDuration": 5, "category": "shop", "accessNodeIds": ["node140", "node136"] },
   { "id": "emporium", "name": "Emporium", "entranceNodeId": "node50", "exitNodeId": "node50", "displayLocation": { "x": 940, "y": 1096 }, "rideDuration": 5, "category": "shop", "accessNodeIds": ["node50", "node56"] },
   { "id": "agrabah_bazaar", "name": "Agrabah Bazaar", "entranceNodeId": "node12", "exitNodeId": "node12", "displayLocation": { "x": 452, "y": 792 }, "rideDuration": 5, "category": "pin", "accessNodeIds": ["node12", "node14"], "hoverText": "Open-air market in Adventureland.\nHand-carved trinkets & spices." },
-  { "id": "confectionary", "name": "Confectionary", "entranceNodeId": "node56", "exitNodeId": "node56", "displayLocation": { "x": 1000, "y": 1099 }, "rideDuration": 5, "category": "pin", "accessNodeIds": ["node56", "node71"] }
+  { "id": "confectionary", "name": "Confectionary", "entranceNodeId": "node56", "exitNodeId": "node56", "displayLocation": { "x": 1000, "y": 1099 }, "rideDuration": 5, "category": "pin", "accessNodeIds": ["node56", "node71"] },
+  { "id": "restroom_hub", "name": "Hub Restroom", "entranceNodeId": "node50", "exitNodeId": "node50", "displayLocation": { "x": 937, "y": 1144 }, "rideDuration": 8, "category": "restroom" }
 ];
 // @RIDESIM:ATTR:END
 
@@ -1554,6 +1561,16 @@ function draw(marker) {
     const loc = a.displayLocation || state.nodes.get(a.entranceNodeId);
     const X = tx(loc.x), Y = ty(loc.y);
     const hot = a.id === hoverAttr;
+    // restrooms render as a small icon (no colored disc), pin-ish in size
+    if (cat === "restroom") {
+      const fs = Math.round((hot ? sz.hot : sz.r) * 2.2);
+      ctx.globalAlpha = attrClosed(a) ? 0.45 : 0.7;
+      ctx.font = fs + "px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("🚻", X, Y);
+      ctx.globalAlpha = 1;
+      if (inSeq >= 0) drawSeqBadge(X, Y, fs * 0.4, inSeq + 1);
+      return;
+    }
     const live = showLiveWaits ? liveWaitFor(a) : null;
     // pins are points of interest — half the diameter of other markers
     let radius = (hot ? sz.hot : sz.r) * (cat === "pin" ? 0.5 : 1), fill, inside = "", insideColor = "#08263a";
@@ -1826,8 +1843,8 @@ function renderSeq() {
     const div = document.createElement("div");
     div.className = "seq-item"; div.draggable = true; div.dataset.idx = i;
     const cat = a ? attrCat(a) : "ride";
-    // editable dwell time for shops/restaurants (your estimate); rides are fixed
-    const durHtml = (cat === "restaurant" || cat === "shop")
+    // editable dwell time for shops/restaurants/restrooms (your estimate); rides are fixed
+    const durHtml = (cat === "restaurant" || cat === "shop" || cat === "restroom")
       ? '<input class="dur" type="number" min="0" step="5" inputmode="numeric" value="' + (a.rideDuration || 0) + '" title="Minutes you\'ll spend here"><span class="durunit">min</span>'
       : "";
     div.innerHTML = '<span class="idx" title="Tap to change position">' + (i + 1) + '</span><span class="nm">' +
@@ -2099,7 +2116,7 @@ function t12(min) {
   const ap = h < 12 ? "AM" : "PM"; let hh = h % 12; if (hh === 0) hh = 12;
   return hh + ":" + String(m).padStart(2, "0") + " " + ap;
 }
-const CAT_ICON = { ride: "🎢", restaurant: "🍽", shop: "🛍", pin: "📍" };
+const CAT_ICON = { ride: "🎢", restaurant: "🍽", shop: "🛍", pin: "📍", restroom: "🚻" };
 // A clean, printable HTML day plan (own document so print/Save-PDF is native).
 function itineraryHtml(startMin, finish, totWalk, totWait, totRide, totFt, jsonStr) {
   const steps = state.steps.map((s, i) => {
@@ -2165,7 +2182,7 @@ function download(name, content, type) {
 const HINTS = {
   nodes: 'Array of { id, name?, isAttraction, x, y } — node coordinates in pixels.',
   connections: 'Array of { from, to:[...] }, or { from, to:"id", points:[{x,y}...] } for a polyline edge (length follows the polyline).',
-  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration, category?, closed?, hoverText?, avgWait?, waitId? }. category ride|restaurant|shop|pin (default ride); only rides queue. avgWait = typical wait (min) used for timing; live waitId overrides when the live overlay is on. closed true = gray. hoverText shows on map hover.',
+  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration, category?, closed?, hoverText?, avgWait?, waitId? }. category ride|restaurant|shop|pin|restroom (default ride); only rides queue. avgWait = typical wait (min) used for timing; live waitId overrides when the live overlay is on. closed true = gray. hoverText shows on map hover.',
   waits: 'Tab-delimited: attraction_id  time_of_day(HH:MM)  avg_wait_minutes. Linearly interpolated.'
 };
 function openModal() {
