@@ -232,6 +232,8 @@
     }
     header h1 { font-size: 14px; width: 100%; }
     .controls { margin-left: 0; gap: 8px; row-gap: 8px; }
+    /* save header space on phones */
+    #dataBtn, #mapOpacityCtl { display: none; }
 
     /* one vertical column instead of three side-by-side */
     main { flex-direction: column; flex: none; }
@@ -260,7 +262,7 @@
       <button id="nowBtn" title="Set start to the current time">Now</button></label>
     <label class="ctl">From <select id="startLoc" title="Where you are right now — the day starts here"></select></label>
     <label class="ctl" style="display:none">ft/px <input type="number" id="ftPerPx" value="4" min="0.1" step="0.5" title="Feet per pixel — scales walk distance"></label>
-    <label class="ctl">Map <input type="range" id="bgOpacity" min="0" max="100" value="100" style="width:70px" title="Background image opacity"></label>
+    <label class="ctl" id="mapOpacityCtl">Map <input type="range" id="bgOpacity" min="0" max="100" value="100" style="width:70px" title="Background image opacity"></label>
     <button id="bgAdjustBtn" style="display:none" title="Drag to move the map, scroll to scale it, to align it with the nodes">⤢ Align Map</button>
     <button id="bgFitBtn" style="display:none" title="Scale &amp; center the map over the nodes as a starting point">Fit</button>
     <button id="graphToggle" title="Show/hide the node + path network (route stays visible)">◉ Graph</button>
@@ -274,7 +276,7 @@
         <option value="60">Instant (60 min/s)</option>
       </select>
     </label>
-    <button id="playBtn" class="primary">▶ Animate</button>
+    <button id="playBtn" class="primary">▶ Play</button>
     <button id="stopBtn">■ Stop</button>
     <button id="addNodeBtn" style="display:none" title="Double-click the map to capture node coordinates">➕ Add Nodes</button>
     <button id="dataBtn">📋 Data</button>
@@ -2110,7 +2112,7 @@ function pause() {
 function stop() {
   playing = false; animClock = 0; activeStepIndex = -1;
   if (animRAF) cancelAnimationFrame(animRAF);
-  document.getElementById("playBtn").textContent = "▶ Animate";
+  document.getElementById("playBtn").textContent = "▶ Play";
   document.getElementById("nowPlaying").classList.remove("show");
   document.querySelectorAll(".tl-row").forEach(r => r.style.background = "");
   draw();
