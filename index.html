@@ -1642,7 +1642,7 @@ function draw(marker) {
   state.attractions.forEach(a => {
     if (!Array.isArray(a.track) || a.track.length < 2) return;
     const bright = a.id === activeTrackId && playing;
-    drawPath(a.track, bright ? "rgba(157,123,255,0.9)" : "rgba(157,123,255,0.25)", bright ? 3 : 2, false);
+    drawPath(a.track, bright ? "rgba(157,123,255,0.9)" : "rgba(157,123,255,0.25)", bright ? 2.1 : 1.4, false);
   });
 
   // sequence routes: prominent + direction arrows when "Plan" is on, else faint
