@@ -70,6 +70,13 @@ Attribute VB_Name = "VisioExport"
 '   image resolution lines up automatically (no manual aligning). Export the
 '   same image as background.png next to index.html.
 '
+' RIDE TRACKS (optional, for "interesting" rides):
+'   Draw the ride path as a line/freeform shape on a layer named "Track", and
+'   glue one end into the ride's Attraction shape (a connection point). The
+'   exporter writes its vertices as "track" on that ride; the planner animates
+'   the marker along it over the ride duration and draws it faintly on the map.
+'   Vertices keep their natural order (first point = animation start).
+'
 ' COORDINATES
 '   Visio is inches, origin bottom-left, Y up. We emit pixels, origin top-left,
 '   Y down (screen space). Node coords are relative to the Bck map extent, so
@@ -85,12 +92,16 @@ Private Const HTML_PATH_OVERRIDE As String = ""
 ' Layer holding the background map image; its extent defines where the
 ' background.png is stretched in node coordinates (nodes sit inside it).
 Private Const BG_LAYER As String = "Bck"
+' Layer holding ride track shapes. A shape on this layer is a ride animation
+' path; glue one end into the ride shape to bind it to that ride.
+Private Const TRACK_LAYER As String = "Track"
 
 Private mPageH As Double                   ' active page height (inches), for Y-flip
 Private mNodeMap As Collection             ' "k"&Shape.ID -> Array(id, cxPx, cyPx, role)
 Private mAttrMap As Collection             ' "k"&Shape.ID -> attractionId
 Private mRole As Collection                ' "k"&Shape.ID -> role (node-like shapes)
 Private mScaleIds As Collection            ' "k"&Shape.ID of ScaleStart/ScaleEnd shapes
+Private mTrackIds As Collection            ' "k"&Shape.ID of Track-layer shapes
 Private mWarnings As Collection
 
 '------------------------------------------------------------------------------
@@ -104,6 +115,7 @@ Public Sub ExportRideSim()
     Set mAttrMap = New Collection
     Set mRole = New Collection
     Set mScaleIds = New Collection
+    Set mTrackIds = New Collection
     Set mWarnings = New Collection
 
     Dim shp As Visio.Shape, v As Variant
@@ -118,11 +130,13 @@ Public Sub ExportRideSim()
     Set exitShapes = New Collection
     Set attractions = New Collection
     Dim usedAttr As Collection: Set usedAttr = New Collection
+    Dim trackShapes As Collection: Set trackShapes = New Collection
 
     For Each shp In pg.Shapes
         Dim role As String: role = MasterRole(shp)
         If role <> "" Then mRole.Add role, "k" & shp.id
         If ScaleRole(shp) <> "" Then mScaleIds.Add True, "k" & shp.id
+        If OnLayer(shp, TRACK_LAYER) Then mTrackIds.Add True, "k" & shp.id: trackShapes.Add shp
         Select Case role
             Case "Node":     nodeShapes.Add shp
             Case "Entrance": entShapes.Add shp
@@ -142,7 +156,7 @@ Public Sub ExportRideSim()
     Set exitOf = New Collection  ' "k"&ExitShapeID     -> attrId
     Dim directOf As Collection: Set directOf = New Collection ' "k"&AttractionShapeID -> node ShapeID (non-ride single-node link)
     For Each shp In pg.Shapes
-        If MasterRole(shp) = "" And shp.OneD Then
+        If MasterRole(shp) = "" And shp.OneD And Not KeyExists(mTrackIds, "k" & shp.id) Then
             Dim bShp As Visio.Shape, eShp As Visio.Shape
             Set bShp = Nothing: Set eShp = Nothing
             GetEnds shp, bShp, eShp
@@ -265,6 +279,29 @@ Public Sub ExportRideSim()
         End If
     Next
 
+    ' --- track pass: ride animation polylines (shapes on the "Track" layer) -
+    '   Each track is glued into the ride shape it belongs to. We keep its
+    '   vertices in natural order (first point first) for the ride animation.
+    Dim trackOf As Collection: Set trackOf = New Collection ' "k"&AttractionShapeID -> points JSON
+    For Each v In trackShapes
+        Set shp = v
+        Dim trkAttr As Visio.Shape: Set trkAttr = TrackRideShape(shp)
+        If trkAttr Is Nothing Then
+            Warn "Track '" & shp.NameU & "' isn't glued to a ride - glue one end into the ride shape. Skipped."
+        ElseIf CategoryOf(trkAttr) <> "ride" Then
+            Warn "Track '" & shp.NameU & "' is attached to a non-ride ('" & mAttrMap("k" & trkAttr.id) & "'). Skipped."
+        ElseIf KeyExists(trackOf, "k" & trkAttr.id) Then
+            Warn "Ride '" & mAttrMap("k" & trkAttr.id) & "' already has a track; ignoring extra " & shp.NameU & "."
+        Else
+            Dim trkPts As String: trkPts = TrackPointsJson(shp)
+            If trkPts = "" Then
+                Warn "Track '" & shp.NameU & "' has fewer than 2 points. Skipped."
+            Else
+                trackOf.Add trkPts, "k" & trkAttr.id
+            End If
+        End If
+    Next
+
     ' --- pass E: attractions (entrance/exit from association lines) --------
     For Each v In attractions
         Set shp = v
@@ -306,8 +343,10 @@ Public Sub ExportRideSim()
                 If cnt >= 2 Then accJson = "[" & ids & "]"
             End If
         End If
+        Dim trkJson As String: trkJson = ""
+        If KeyExists(trackOf, "k" & shp.id) Then trkJson = trackOf("k" & shp.id)
         If attrCount > 0 Then attrJson = attrJson & "," & vbCrLf
-        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp), IsClosed(shp), WaitIdOf(shp), accJson, PropStr(shp, "Hovertext"), AvgWaitOf(shp))
+        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp), IsClosed(shp), WaitIdOf(shp), accJson, PropStr(shp, "Hovertext"), AvgWaitOf(shp), trkJson)
         attrCount = attrCount + 1
     Next
 
@@ -645,6 +684,49 @@ Private Function ConnectorPointsJson(shp As Visio.Shape, fromId As String) As St
     ConnectorPointsJson = s
 End Function
 
+' The ride Attraction a Track shape is glued into (via any of its connections).
+Private Function TrackRideShape(trk As Visio.Shape) As Visio.Shape
+    On Error Resume Next
+    Dim cx As Visio.Connect, k As Visio.Shape
+    For Each cx In trk.Connects               ' connections FROM the track TO other shapes
+        Set k = ClimbKnown(cx.ToSheet)
+        If Not k Is Nothing Then
+            If RoleOfShape(k) = "Attraction" Then Set TrackRideShape = k: Exit Function
+        End If
+    Next cx
+End Function
+
+' Ordered vertices of a Track shape as a JSON points array (natural order, first
+' vertex first). "" if the shape has fewer than 2 points.
+Private Function TrackPointsJson(shp As Visio.Shape) As String
+    Dim pts As Collection: Set pts = New Collection
+    On Error Resume Next
+    Dim i As Long, r As Long, xl As Double, yl As Double
+    For i = 1 To shp.GeometryCount
+        r = 1
+        Do While shp.CellExistsU("Geometry" & i & ".X" & r, 0)
+            xl = shp.CellsU("Geometry" & i & ".X" & r).ResultIU
+            yl = shp.CellsU("Geometry" & i & ".Y" & r).ResultIU
+            pts.Add LocalToPagePx(shp, xl, yl)
+            r = r + 1
+        Loop
+    Next i
+    If pts.Count < 2 Then
+        Set pts = New Collection
+        pts.Add Array(Round(CN(shp, "BeginX") * PPI), Round((mPageH - CN(shp, "BeginY")) * PPI))
+        pts.Add Array(Round(CN(shp, "EndX") * PPI), Round((mPageH - CN(shp, "EndY")) * PPI))
+    End If
+    On Error GoTo 0
+    If pts.Count < 2 Then Exit Function
+    Dim s As String, kk As Long, pv As Variant
+    For kk = 1 To pts.Count
+        pv = pts(kk)
+        If kk > 1 Then s = s & ", "
+        s = s & "{ ""x"": " & CLng(pv(0)) & ", ""y"": " & CLng(pv(1)) & " }"
+    Next kk
+    TrackPointsJson = "[" & s & "]"
+End Function
+
 ' Determine the begin/end node shapes a connector is glued to.
 Private Sub GetEnds(CN As Visio.Shape, ByRef bShp As Visio.Shape, ByRef eShp As Visio.Shape)
     On Error Resume Next
@@ -895,7 +977,7 @@ End Function
 Private Function AttractionJson(id As String, nm As String, entId As String, exId As String, _
                           x As Variant, y As Variant, ride As Double, cat As String, _
                           closed As Boolean, waitId As String, accessIds As String, _
-                          hover As String, avgWait As Double) As String
+                          hover As String, avgWait As Double, trackJson As String) As String
     ' Emit category/closed/waitId/accessNodeIds/hoverText/avgWait only when set;
     ' otherwise lines match the original shape so the web app (which defaults
     ' category "ride", closed false) is happy.
@@ -911,10 +993,12 @@ Private Function AttractionJson(id As String, nm As String, entId As String, exI
     If Trim$(hover) <> "" Then hoverJson = ", ""hoverText"": """ & JStr(hover) & """"
     Dim avgJson As String
     If avgWait >= 0 Then avgJson = ", ""avgWait"": " & CLng(Round(avgWait))
+    Dim trkJson As String
+    If trackJson <> "" Then trkJson = ", ""track"": " & trackJson
     AttractionJson = "  { ""id"": """ & id & """, ""name"": """ & JStr(nm) & _
         """, ""entranceNodeId"": """ & entId & """, ""exitNodeId"": """ & exId & _
         """, ""displayLocation"": { ""x"": " & CLng(x) & ", ""y"": " & CLng(y) & _
-        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & closedJson & waitJson & accJson & hoverJson & avgJson & " }"
+        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & closedJson & waitJson & accJson & hoverJson & avgJson & trkJson & " }"
 End Function
 
 ' Queue-Times ride id from the attraction's Shape Data (Prop.WaitID and aliases).

@@ -447,7 +447,7 @@ SAMPLE.nodes = [
   { "id": "node29", "isAttraction": false, "x": 661, "y": 626 },
   { "id": "node30", "isAttraction": false, "x": 673, "y": 560 },
   { "id": "node31", "isAttraction": false, "x": 679, "y": 520 },
-  { "id": "node32", "isAttraction": false, "x": 672, "y": 377 },
+  { "id": "node32", "isAttraction": false, "x": 672, "y": 376 },
   { "id": "node33", "isAttraction": false, "x": 687, "y": 474 },
   { "id": "node34", "isAttraction": false, "x": 687, "y": 437 },
   { "id": "node35", "isAttraction": false, "x": 705, "y": 369 },
@@ -484,7 +484,7 @@ SAMPLE.nodes = [
   { "id": "node66", "isAttraction": false, "x": 933, "y": 740 },
   { "id": "node67", "isAttraction": false, "x": 931, "y": 427 },
   { "id": "node68", "isAttraction": false, "x": 940, "y": 523 },
-  { "id": "node69", "isAttraction": false, "x": 957, "y": 1313 },
+  { "id": "node69", "isAttraction": false, "x": 957, "y": 1312 },
   { "id": "node70", "isAttraction": false, "x": 955, "y": 740 },
   { "id": "node71", "isAttraction": false, "x": 949, "y": 674 },
   { "id": "node72", "isAttraction": false, "x": 964, "y": 1132 },
@@ -626,11 +626,11 @@ SAMPLE.nodes = [
   { "id": "tron_in", "isAttraction": true, "x": 1633, "y": 506 },
   { "id": "tonys_town_square_in", "isAttraction": true, "x": 1045, "y": 1163 },
   { "id": "train_station_in", "isAttraction": true, "x": 916, "y": 1253 },
-  { "id": "begin_in", "isAttraction": true, "x": 972, "y": 1319 },
+  { "id": "begin_in", "isAttraction": true, "x": 972, "y": 1318 },
   { "id": "belle_in", "isAttraction": true, "x": 1092, "y": 156 },
   { "id": "teacups_in", "isAttraction": true, "x": 1270, "y": 416 },
   { "id": "water_fountain_in", "isAttraction": true, "x": 931, "y": 674 },
-  { "id": "caseys_corner_in", "isAttraction": true, "x": 920, "y": 881 },
+  { "id": "caseys_corner_in", "isAttraction": true, "x": 920, "y": 880 },
   { "id": "crystal_palace_in", "isAttraction": true, "x": 862, "y": 889 },
   { "id": "meet_mickey_in", "isAttraction": true, "x": 1044, "y": 1185 },
   { "id": "casey_jr_soak_in", "isAttraction": true, "x": 1452, "y": 189 },
@@ -1035,7 +1035,7 @@ SAMPLE.attractions = [
   { "id": "tianas", "name": "Tianas", "entranceNodeId": "tianas_in", "exitNodeId": "tianas_out", "displayLocation": { "x": 193, "y": 602 }, "rideDuration": 11, "waitId": "13630" },
   { "id": "pirates", "name": "Pirates", "entranceNodeId": "pirates_in", "exitNodeId": "pirates_out", "displayLocation": { "x": 307, "y": 902 }, "rideDuration": 8, "waitId": "137" },
   { "id": "tiki", "name": "Tiki", "entranceNodeId": "tiki_in", "exitNodeId": "tiki_out", "displayLocation": { "x": 463, "y": 848 }, "rideDuration": 10, "waitId": "334" },
-  { "id": "jungle", "name": "Jungle", "entranceNodeId": "jungle_in", "exitNodeId": "jungle_out", "displayLocation": { "x": 505, "y": 914 }, "rideDuration": 9, "waitId": "134" },
+  { "id": "jungle", "name": "Jungle", "entranceNodeId": "jungle_in", "exitNodeId": "jungle_out", "displayLocation": { "x": 505, "y": 914 }, "rideDuration": 9, "waitId": "134", "track": [{ "x": 495, "y": 938 }, { "x": 454, "y": 936 }, { "x": 418, "y": 976 }, { "x": 403, "y": 1080 }, { "x": 457, "y": 1132 }, { "x": 567, "y": 1120 }, { "x": 609, "y": 1089 }, { "x": 630, "y": 1046 }, { "x": 613, "y": 1026 }, { "x": 559, "y": 1052 }, { "x": 484, "y": 1070 }, { "x": 453, "y": 1029 }, { "x": 453, "y": 1010 }, { "x": 484, "y": 982 }, { "x": 559, "y": 970 }, { "x": 549, "y": 951 }, { "x": 510, "y": 942 }] },
   { "id": "swiss_family_robinson", "name": "Swiss Family Robinson", "entranceNodeId": "swiss_family_robinson_in", "exitNodeId": "swiss_family_robinson_out", "displayLocation": { "x": 601, "y": 848 }, "rideDuration": 8, "waitId": "355" },
   { "id": "aladdin", "name": "Aladdin", "entranceNodeId": "aladdin_in", "exitNodeId": "aladdin_out", "displayLocation": { "x": 509, "y": 800 }, "rideDuration": 2, "waitId": "141" },
   { "id": "country_bear", "name": "Country Bear", "entranceNodeId": "country_bear_in", "exitNodeId": "country_bear_out", "displayLocation": { "x": 451, "y": 728 }, "rideDuration": 11, "waitId": "1214" },
@@ -1633,6 +1633,15 @@ function draw(marker) {
     });
   }
 
+  // ride tracks (always faint). The active ride's track brightens during play.
+  const activeTrackId = (activeStepIndex >= 0 && state.steps[activeStepIndex])
+    ? state.steps[activeStepIndex].attractionId : null;
+  state.attractions.forEach(a => {
+    if (!Array.isArray(a.track) || a.track.length < 2) return;
+    const bright = a.id === activeTrackId && playing;
+    drawPath(a.track, bright ? "rgba(157,123,255,0.9)" : "rgba(157,123,255,0.25)", bright ? 3 : 2, false);
+  });
+
   // sequence routes: prominent + direction arrows when "Plan" is on, else faint
   if (showPlan) {
     state.steps.forEach(s => {
@@ -2127,9 +2136,16 @@ function renderAnimAt(clock) {
     } else if (absT < s.rideEnd) {
       stepI = i; phase = "ride";
       const a = state.attractions.get(s.attractionId);
-      const disp = (a && a.displayLocation) || state.nodes.get(s.entranceNodeId);
       const meta = catMeta(s.category);
-      marker = { x: disp.x, y: disp.y, color: meta.color };
+      if (a && Array.isArray(a.track) && a.track.length >= 2 && s.ride > 0) {
+        // follow the ride track over the ride duration
+        const frac = (absT - s.waitEnd) / s.ride;
+        const p = pointAlong(a.track, frac);
+        marker = { x: p.x, y: p.y, color: meta.color };
+      } else {
+        const disp = (a && a.displayLocation) || state.nodes.get(s.entranceNodeId);
+        marker = { x: disp.x, y: disp.y, color: meta.color };
+      }
       info = meta.anim + s.name;
       break;
     }
@@ -2291,7 +2307,7 @@ function download(name, content, type) {
 const HINTS = {
   nodes: 'Array of { id, name?, isAttraction, x, y } — node coordinates in pixels.',
   connections: 'Array of { from, to:[...] }, or { from, to:"id", points:[{x,y}...] } for a polyline edge (length follows the polyline).',
-  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration, category?, closed?, hoverText?, avgWait?, waitId? }. category ride|restaurant|shop|pin|restroom (default ride); only rides queue. avgWait = typical wait (min) used for timing; live waitId overrides when the live overlay is on. closed true = gray. hoverText shows on map hover.',
+  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration, category?, closed?, hoverText?, avgWait?, waitId?, track? }. category ride|restaurant|shop|pin|restroom (default ride); only rides queue. avgWait = typical wait (min) used for timing; live waitId overrides when the live overlay is on. closed true = gray. hoverText shows on map hover. track = [{x,y}...] ride path; marker animates along it over the ride and it draws faintly.',
   waits: 'Tab-delimited: attraction_id  time_of_day(HH:MM)  avg_wait_minutes. Linearly interpolated.'
 };
 function openModal() {
