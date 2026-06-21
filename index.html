@@ -1610,7 +1610,7 @@ function draw(marker) {
 }
 function drawPath(coords, color, lw, bright) {
   if (!coords || coords.length < 2) return;
-  ctx.lineWidth = lw; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.lineWidth = lw * 0.7; ctx.lineJoin = "round"; ctx.lineCap = "round";   // ~30% thinner tracks
   ctx.strokeStyle = bright ? "#5cc8ff" : color;
   if (bright) { ctx.shadowColor = "#5cc8ff"; ctx.shadowBlur = 8; }
   ctx.beginPath();
