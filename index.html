@@ -2494,12 +2494,12 @@ document.getElementById("stopBtn").onclick = stop;
 document.getElementById("exportBtn").onclick = exportPlan;
 document.getElementById("clearSeq").onclick = () => { state.sequence = []; stop(); refresh(); };
 document.getElementById("startTime").onchange = () => { stop(); refresh(); };
-document.getElementById("nowBtn").onclick = () => {
+function setStartNow() {
   const d = new Date();
   document.getElementById("startTime").value =
     String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
-  stop(); refresh();
-};
+}
+document.getElementById("nowBtn").onclick = () => { setStartNow(); stop(); refresh(); };
 document.getElementById("startLoc").onchange = (e) => { startOverride = resolveStartNode(e.target.value); stop(); refresh(); };
 document.getElementById("ftPerPx").onchange = () => { stop(); refresh(); };
 document.getElementById("bgOpacity").value = Math.round(bg.opacity * 100);
@@ -2699,6 +2699,7 @@ function loadSample() {
 }
 function init() {
   loadSample();
+  setStartNow();          // default the day to the current time
   resizeCanvas();
   refresh();
 }
