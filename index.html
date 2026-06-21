@@ -2539,8 +2539,7 @@ document.getElementById("liveToggle").onclick = () => {
   }
 };
 setLiveToggleUI();
-fetchLiveWaits();                                   // fetch once on startup so data is ready
-if (showLiveWaits) startLiveRefresh();              // keep refreshing only when the overlay is on
+// live waits are fetched at the end of init() (once attractions exist)
 // refetch when the tab is refocused and the data is stale (>5 min)
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && showLiveWaits && Date.now() - liveWaits.fetchedAt > 5 * 60 * 1000) fetchLiveWaits();
@@ -2704,6 +2703,9 @@ function init() {
   setStartNow();          // default the day to the current time
   resizeCanvas();
   refresh();
+  // fetch live waits now that attractions exist; completion redraws (see fetchLiveWaits)
+  fetchLiveWaits();
+  if (showLiveWaits) startLiveRefresh();
 }
 init();
 </script>
