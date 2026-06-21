@@ -176,6 +176,7 @@
   .seq-item .nm { flex: 1; font-size: 13px; }
   .seq-item .dur { width: 46px; background: var(--panel); color: var(--text); border: 1px solid var(--border);
     border-radius: 5px; padding: 2px 5px; font-size: 12px; text-align: right; cursor: text; }
+  .seq-item .dur.ovr { border-color: var(--accent); color: var(--accent); }  /* wait override active */
   .seq-item .durunit { font-size: 11px; color: var(--muted); margin: 0 2px 0 4px; }
   .seq-item .rm { color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 4px; }
   .seq-item .rm:hover { color: #ff8a8a; background: rgba(255,80,80,.12); }
@@ -1337,6 +1338,7 @@ function interpWait(attractionId, timeMin) {
 // Only rides queue; everything else is 0.
 function waitFor(a, arrivalMin) {
   if (!a || attrCat(a) !== "ride") return 0;
+  if (typeof a.waitOverride === "number" && a.waitOverride >= 0) return a.waitOverride;  // user override wins
   if (showLiveWaits) {
     const live = liveWaitFor(a);
     if (live && live.open && typeof live.wait === "number") return live.wait;
@@ -1964,12 +1966,18 @@ function renderSeq() {
     const div = document.createElement("div");
     div.className = "seq-item"; div.draggable = true; div.dataset.idx = i;
     const cat = a ? attrCat(a) : "ride";
-    // editable dwell time for shops/restaurants/restrooms (your estimate); rides are fixed
-    const durHtml = (cat === "restaurant" || cat === "shop" || cat === "restroom")
-      ? '<input class="dur" type="number" min="0" step="5" inputmode="numeric" value="' + (a.rideDuration || 0) + '" title="Minutes you\'ll spend here"><span class="durunit">min</span>'
-      : "";
+    // editable field: dwell time for shops/restaurants/restrooms, wait for rides
+    let fieldHtml = "";
+    if (a && (cat === "restaurant" || cat === "shop" || cat === "restroom")) {
+      fieldHtml = '<input class="dur" data-kind="dur" type="number" min="0" step="5" inputmode="numeric" value="' + (a.rideDuration || 0) + '" title="Minutes you\'ll spend here"><span class="durunit">min</span>';
+    } else if (a && cat === "ride") {
+      const step = (state.steps[i] && state.steps[i].attractionId === id) ? state.steps[i] : null;
+      const w = (typeof a.waitOverride === "number") ? a.waitOverride : (step ? Math.round(step.wait) : 0);
+      const ovr = (typeof a.waitOverride === "number") ? " ovr" : "";
+      fieldHtml = '<input class="dur wait' + ovr + '" data-kind="wait" type="number" min="0" step="5" inputmode="numeric" value="' + w + '" title="Wait minutes — overrides live/avg; clear to reset"><span class="durunit">wait</span>';
+    }
     div.innerHTML = '<span class="idx" title="Tap to change position">' + (i + 1) + '</span><span class="nm">' +
-      esc(a ? a.name : id) + '</span>' + durHtml + '<span class="rm" title="Remove">&#10005;</span>';
+      esc(a ? a.name : id) + '</span>' + fieldHtml + '<span class="rm" title="Remove">&#10005;</span>';
     div.querySelector(".rm").onclick = (e) => { e.stopPropagation(); state.sequence.splice(i, 1); refresh(); };
     // tap the number to move it (works on touch where drag doesn't)
     div.querySelector(".idx").onclick = (e) => { e.stopPropagation(); moveSeqItem(i); };
@@ -1979,9 +1987,14 @@ function renderSeq() {
       durEl.onpointerdown = (e) => e.stopPropagation();   // don't start a drag from the field
       durEl.onclick = (e) => e.stopPropagation();
       durEl.onchange = () => {                              // commit on blur/Enter, then recompute
-        let v = parseInt(durEl.value, 10);
-        if (isNaN(v) || v < 0) v = 0;
-        a.rideDuration = v;
+        const raw = durEl.value.trim();
+        if (durEl.dataset.kind === "wait") {
+          if (raw === "") delete a.waitOverride;            // blank clears the override
+          else { let v = parseInt(raw, 10); a.waitOverride = (isNaN(v) || v < 0) ? 0 : v; }
+        } else {
+          let v = parseInt(raw, 10);
+          a.rideDuration = (isNaN(v) || v < 0) ? 0 : v;
+        }
         refresh();
       };
     }
