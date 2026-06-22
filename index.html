@@ -2133,12 +2133,16 @@ function frame(ts) {
 
 // Hard-coded "spin" animations: the avatar orbits the ride's icon during the
 // ride. dir: 1 = clockwise, -1 = counter-clockwise. seg > 0 steps in N equal
-// segments (e.g. the rotating theater) instead of moving smoothly.
+// segments (e.g. the rotating theater). type "epi" = spirograph: the avatar
+// rides a small circle whose centre revolves on the big circle (revs = big
+// turns over the ride, spins = small turns per big turn).
 const RIDE_SPIN = {
   aladdin:              { dir: 1,  seg: 0 },
   dumbo:                { dir: 1,  seg: 0 },
   carousel:             { dir: 1,  seg: 0 },
-  carousel_of_progress: { dir: -1, seg: 6 }
+  astro_orbiter:        { dir: 1,  seg: 0 },
+  carousel_of_progress: { dir: -1, seg: 6 },
+  teacups:              { type: "epi", dir: 1, revs: 2, spins: 6 }
 };
 
 function renderAnimAt(clock) {
@@ -2168,12 +2172,24 @@ function renderAnimAt(clock) {
       const spin = RIDE_SPIN[s.attractionId];
       const disp = (a && a.displayLocation) || state.nodes.get(s.entranceNodeId);
       if (spin && disp && s.ride > 0) {
-        // orbit the avatar around the icon's circumference (no overlap)
-        const rMap = (attrSize().r + 8) / (view.scale || 1);
-        let frac = Math.max(0, Math.min(0.999, (absT - s.rideStart) / s.ride));
-        if (spin.seg > 0) frac = Math.floor(frac * spin.seg) / spin.seg;  // step in N segments
-        const ang = -Math.PI / 2 + spin.dir * frac * 2 * Math.PI;          // start at top
-        marker = { x: disp.x + rMap * Math.cos(ang), y: disp.y + rMap * Math.sin(ang), color: meta.color };
+        const scale = view.scale || 1;
+        const frac = Math.max(0, Math.min(0.999, (absT - s.rideStart) / s.ride));
+        const TAU = 2 * Math.PI, top = -Math.PI / 2;
+        if (spin.type === "epi") {
+          // spirograph: small circle rides a point on the big revolving circle
+          const Rbig = attrSize().r / scale, rSmall = 6 / scale;
+          const bigAng = top + spin.dir * frac * TAU * spin.revs;
+          const smallAng = top + spin.dir * frac * TAU * spin.revs * spin.spins;
+          marker = { x: disp.x + Rbig * Math.cos(bigAng) + rSmall * Math.cos(smallAng),
+                     y: disp.y + Rbig * Math.sin(bigAng) + rSmall * Math.sin(smallAng), color: meta.color };
+        } else {
+          // orbit the avatar around the icon's circumference (no overlap)
+          let f = frac;
+          if (spin.seg > 0) f = Math.floor(f * spin.seg) / spin.seg;  // step in N segments
+          const ang = top + spin.dir * f * TAU;
+          const rMap = (attrSize().r + 8) / scale;
+          marker = { x: disp.x + rMap * Math.cos(ang), y: disp.y + rMap * Math.sin(ang), color: meta.color };
+        }
       } else if (a && Array.isArray(a.track) && a.track.length >= 2 && s.ride > 0) {
         // follow the ride track over the ride duration
         const frac = (absT - s.waitEnd) / s.ride;
