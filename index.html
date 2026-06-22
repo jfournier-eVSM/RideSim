@@ -1472,7 +1472,7 @@ let labelHit = null;  // screen rect of the shown hover label (click/tap to add)
 let showPlan = localStorage.getItem("ridesim.showPlan") === "1"; // highlight the day's route
 let hoverStep = null; // step index whose walk segment is hovered (shows dist/time)
 let showLiveWaits = localStorage.getItem("ridesim.liveWaits") === "1"; // live queue-times overlay
-const liveWaits = { byId: new Map(), fetchedAt: 0, error: false, errMsg: "" };
+const liveWaits = { byId: new Map(), fetchedAt: 0, error: false, errMsg: "", anyOpen: false };
 let liveTimer = null;
 const QT_URL = "https://queue-times.com/parks/6/queue_times.json";
 // queue-times.com sends no CORS header, so a direct fetch is blocked when the
@@ -1696,7 +1696,7 @@ function draw(marker) {
       if (inSeq >= 0) drawSeqBadge(X, Y, fs * 0.4, inSeq + 1);
       return;
     }
-    const live = showLiveWaits ? liveWaitFor(a) : null;
+    const live = (showLiveWaits && liveWaits.anyOpen) ? liveWaitFor(a) : null;  // hide when park closed
     // pins are points of interest — half the diameter of other markers
     let radius = (hot ? sz.hot : sz.r) * (cat === "pin" ? 0.5 : 1), fill, inside = "", insideColor = "#08263a";
     if (live) {
@@ -1888,6 +1888,8 @@ async function fetchLiveWaits() {
     const add = r => { if (r && r.id != null) m.set(String(r.id), { wait: r.wait_time, open: !!r.is_open, name: r.name }); };
     (data.lands || []).forEach(l => (l.rides || []).forEach(add));
     (data.rides || []).forEach(add);
+    // park closed -> every ride reports closed; we then hide the wait overlay
+    liveWaits.anyOpen = [...m.values()].some(e => e.open);
     liveWaits.byId = m; liveWaits.fetchedAt = Date.now(); liveWaits.error = false; liveWaits.errMsg = "";
   } else {
     liveWaits.error = true;
@@ -1905,7 +1907,9 @@ function updateQtCredit() {
   if (!showLiveWaits) { el.style.display = "none"; return; }
   el.style.display = "block";
   let meta = "";
-  if (liveWaits.fetchedAt) {
+  if (liveWaits.fetchedAt && !liveWaits.anyOpen) {
+    meta = " · park closed — waits hidden";
+  } else if (liveWaits.fetchedAt) {
     meta = " · updated " + hmFromDate(new Date(liveWaits.fetchedAt));
     // on-screen diagnostic (no console on mobile): how many rides matched a live wait
     let rides = 0, matched = 0;
@@ -2198,7 +2202,7 @@ function renderAnimAt(clock) {
           if (spin.seg > 0) f = Math.floor(f * spin.seg) / spin.seg;  // step in N segments
           const loops = spin.seg > 0 ? 1 : 5;                          // smooth orbits do 5 laps
           const ang = top + spin.dir * f * TAU * loops;
-          const rMap = (attrSize().r + 5) / scale;   // hug the icon (half-size avatar ~3.5px)
+          const rMap = (attrSize().r - 4) / scale;   // just inside the icon rim
           marker = { x: disp.x + rMap * Math.cos(ang), y: disp.y + rMap * Math.sin(ang), color: meta.color };
         }
       } else if (a && Array.isArray(a.track) && a.track.length >= 2 && s.ride > 0) {
