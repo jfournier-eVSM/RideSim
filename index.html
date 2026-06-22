@@ -2134,10 +2134,7 @@ function frame(ts) {
   lastFrameTime = ts;
   let speed = parseFloat(document.getElementById("animSpeed").value);
   // on Slow/Normal, crawl through short rides (<5 min) so their animation is watchable
-  if (inShortRide(animClock)) {
-    if (speed === 3) speed = 0.25;        // Slow  -> 15 sim-sec per real sec
-    else if (speed === 8) speed = 0.5;    // Normal -> 30 sim-sec per real sec
-  }
+  if (inShortRide(animClock) && (speed === 3 || speed === 8)) speed = 0.25;  // 15 sim-sec per real sec
   animClock += dtSec * speed;
 
   const span = simSpanMin();
