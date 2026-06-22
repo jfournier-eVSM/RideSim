@@ -2152,7 +2152,7 @@ const RIDE_SPIN = {
   carousel:             { dir: 1,  seg: 0 },
   astro_orbiter:        { dir: 1,  seg: 0 },
   carousel_of_progress: { dir: -1, seg: 6 },
-  teacups:              { type: "epi", dir: 1, revs: 2, spins: 6 }
+  teacups:              { type: "epi", dir: 1, revs: 5, spins: 6 }
 };
 
 function renderAnimAt(clock) {
@@ -2196,7 +2196,8 @@ function renderAnimAt(clock) {
           // orbit the avatar around the icon's circumference (no overlap)
           let f = frac;
           if (spin.seg > 0) f = Math.floor(f * spin.seg) / spin.seg;  // step in N segments
-          const ang = top + spin.dir * f * TAU;
+          const loops = spin.seg > 0 ? 1 : 5;                          // smooth orbits do 5 laps
+          const ang = top + spin.dir * f * TAU * loops;
           const rMap = (attrSize().r + 5) / scale;   // hug the icon (half-size avatar ~3.5px)
           marker = { x: disp.x + rMap * Math.cos(ang), y: disp.y + rMap * Math.sin(ang), color: meta.color };
         }
