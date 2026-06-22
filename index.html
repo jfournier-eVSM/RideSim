@@ -2123,13 +2123,22 @@ function frame(ts) {
   if (!lastFrameTime) lastFrameTime = ts;
   const dtSec = (ts - lastFrameTime) / 1000;
   lastFrameTime = ts;
-  const speed = parseFloat(document.getElementById("animSpeed").value);
+  let speed = parseFloat(document.getElementById("animSpeed").value);
+  // on Slow, crawl through short rides (<5 min) so their animation is watchable
+  if (speed === 3 && inShortRide(animClock)) speed = 0.25;   // 15 sim-sec per real sec
   animClock += dtSec * speed;
 
   const span = simSpanMin();
   if (animClock >= span) { animClock = span; renderAnimAt(animClock); stop(); return; }
   renderAnimAt(animClock);
   if (playing) animRAF = requestAnimationFrame(frame);
+}
+// true when the clock is within the ride phase of a short (<5 min) ride
+function inShortRide(clock) {
+  if (!state.steps.length) return false;
+  const absT = state.steps[0].walkStart + clock;
+  return state.steps.some(s => s.category === "ride" && s.ride > 0 && s.ride < 5 &&
+    absT >= s.rideStart && absT < s.rideEnd);
 }
 
 // Hard-coded "spin" animations: the avatar orbits the ride's icon during the
@@ -2188,7 +2197,7 @@ function renderAnimAt(clock) {
           let f = frac;
           if (spin.seg > 0) f = Math.floor(f * spin.seg) / spin.seg;  // step in N segments
           const ang = top + spin.dir * f * TAU;
-          const rMap = (attrSize().r + 8) / scale;
+          const rMap = (attrSize().r + 5) / scale;   // hug the icon (half-size avatar ~3.5px)
           marker = { x: disp.x + rMap * Math.cos(ang), y: disp.y + rMap * Math.sin(ang), color: meta.color };
         }
       } else if (a && Array.isArray(a.track) && a.track.length >= 2 && s.ride > 0) {
