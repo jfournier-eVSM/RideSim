@@ -1645,6 +1645,7 @@ function draw(marker) {
     ? state.steps[activeStepIndex].attractionId : null;
   state.attractions.forEach(a => {
     if (!Array.isArray(a.track) || a.track.length < 2) return;
+    if (playing && state.sequence.indexOf(a.id) < 0) return;   // focus on the plan while animating
     const bright = a.id === activeTrackId && playing;
     drawPath(a.track, bright ? "rgba(157,123,255,0.9)" : "rgba(157,123,255,0.25)", bright ? 2.1 : 1.4, false);
   });
@@ -1683,6 +1684,7 @@ function draw(marker) {
     const cat = attrCat(a);
     // hide a filtered-out category, but always keep sequenced ones visible
     if (!catFilter[cat] && inSeq < 0) return;
+    if (playing && inSeq < 0) return;   // while animating, show only plan locations
     const loc = a.displayLocation || state.nodes.get(a.entranceNodeId);
     const X = tx(loc.x), Y = ty(loc.y);
     const hot = a.id === hoverAttr;
@@ -2155,7 +2157,7 @@ const RIDE_SPIN = {
   dumbo:                { dir: 1,  seg: 0 },
   carousel:             { dir: 1,  seg: 0 },
   astro_orbiter:        { dir: 1,  seg: 0 },
-  carousel_of_progress: { dir: -1, seg: 6 },
+  carousel_of_progress: { dir: -1, seg: 6, rPxDesktop: 24 },
   teacups:              { type: "epi", dir: 1, revs: 5, spins: 6 }
 };
 
@@ -2202,7 +2204,9 @@ function renderAnimAt(clock) {
           if (spin.seg > 0) f = Math.floor(f * spin.seg) / spin.seg;  // step in N segments
           const loops = spin.seg > 0 ? 1 : 5;                          // smooth orbits do 5 laps
           const ang = top + spin.dir * f * TAU * loops;
-          const rMap = (attrSize().r - 4) / scale;   // just inside the icon rim
+          // default: just inside the rim; some rides override the radius on desktop
+          const rPx = (spin.rPxDesktop && !mobileMQ.matches) ? spin.rPxDesktop : (attrSize().r - 4);
+          const rMap = rPx / scale;
           marker = { x: disp.x + rMap * Math.cos(ang), y: disp.y + rMap * Math.sin(ang), color: meta.color };
         }
       } else if (a && Array.isArray(a.track) && a.track.length >= 2 && s.ride > 0) {
