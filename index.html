@@ -1726,10 +1726,11 @@ function draw(marker) {
 
   // marker
   if (marker) {
-    ctx.beginPath(); ctx.arc(tx(marker.x), ty(marker.y), 7, 0, 7);
+    const ms = marker.scale || 1;                 // avatar shrinks on a ride (positioning unchanged)
+    ctx.beginPath(); ctx.arc(tx(marker.x), ty(marker.y), 7 * ms, 0, 7);
     ctx.fillStyle = marker.color || "#fff"; ctx.fill();
     ctx.lineWidth = 2; ctx.strokeStyle = "#0f1420"; ctx.stroke();
-    ctx.beginPath(); ctx.arc(tx(marker.x), ty(marker.y), 11, 0, 7);
+    ctx.beginPath(); ctx.arc(tx(marker.x), ty(marker.y), 11 * ms, 0, 7);
     ctx.strokeStyle = marker.color || "#fff"; ctx.globalAlpha = .4; ctx.stroke(); ctx.globalAlpha = 1;
   }
 }
@@ -2198,6 +2199,7 @@ function renderAnimAt(clock) {
       } else {
         marker = { x: disp.x, y: disp.y, color: meta.color };
       }
+      if (marker) marker.scale = 0.5;     // half-size avatar while on the ride
       info = meta.anim + s.name;
       break;
     }
