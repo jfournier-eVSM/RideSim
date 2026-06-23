@@ -1934,7 +1934,7 @@ const TP_SOURCES = [
   () => "https://corsproxy.io/?url=" + encodeURIComponent(TP_URL)
 ];
 let tpSourceIdx = 0, llTimer = null;
-const llData = { byName: new Map(), fetchedAt: 0, error: false, anyAvail: false };
+const llData = { byName: new Map(), fetchedAt: 0, error: false, anyAvail: false, total: 0, withLL: 0 };
 let llMatch = { at: -1, map: new Map() };
 
 async function fetchOneTp(url) {
@@ -1961,6 +1961,8 @@ async function fetchLL() {
         price: (q.price && q.price.formatted) ? q.price.formatted : "" });
     });
     llData.byName = m;
+    llData.total = data.liveData.length;        // rides in the feed
+    llData.withLL = m.size;                      // rides that expose a PAID_RETURN_TIME field
     llData.anyAvail = [...m.values()].some(x => x.state === "AVAILABLE");
     llData.fetchedAt = Date.now(); llData.error = false;
   } else {
@@ -2018,8 +2020,11 @@ function renderLLPanel() {
   rows.sort((x, y) => x.dist - y.dist);
   let html = '<div class="ll-head">⚡ Lightning Lanes — nearest</div>';
   if (!rows.length) {
-    const msg = !llData.fetchedAt ? (llData.error ? "unavailable" : "loading…")
-      : (llData.anyAvail ? "none match your rides" : "none available right now");
+    let msg;
+    if (!llData.fetchedAt) msg = llData.error ? "fetch failed (CORS/proxy)" : "loading…";
+    else if (llData.withLL === 0) msg = "API exposes no LL data (" + llData.total + " rides fetched)";
+    else if (!llData.anyAvail) msg = "no LL available now (" + llData.withLL + "/" + llData.total + " rides have the field)";
+    else msg = "available LLs don't match our rides (" + llData.withLL + " have the field)";
     html += '<div class="ll-empty">' + msg + '</div>';
   } else {
     rows.slice(0, 8).forEach(r => {
