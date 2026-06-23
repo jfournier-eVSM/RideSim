@@ -2265,8 +2265,12 @@ function frame(ts) {
   const dtSec = (ts - lastFrameTime) / 1000;
   lastFrameTime = ts;
   let speed = parseFloat(document.getElementById("animSpeed").value);
-  // on Slow/Normal, crawl through short rides (<5 min) so their animation is watchable
-  if (inShortRide(animClock) && (speed === 3 || speed === 8)) speed = 0.25;  // 15 sim-sec per real sec
+  // on Slow/Normal, stretch every ride's animation to a consistent ~10s so the
+  // spin/track is watchable and a 5-min ride doesn't flash by faster than a 3-min one
+  if (speed === 3 || speed === 8) {
+    const rd = currentRideDuration(animClock);
+    if (rd > 0) speed = Math.min(speed, rd / RIDE_ANIM_SEC);
+  }
   animClock += dtSec * speed;
 
   const span = simSpanMin();
@@ -2274,12 +2278,14 @@ function frame(ts) {
   renderAnimAt(animClock);
   if (playing) animRAF = requestAnimationFrame(frame);
 }
-// true when the clock is within the ride phase of a short (<5 min) ride
-function inShortRide(clock) {
-  if (!state.steps.length) return false;
+const RIDE_ANIM_SEC = 10;   // target real-time length of a ride's on-ride animation
+// duration (min) of the ride whose ride-phase the clock is in, else 0
+function currentRideDuration(clock) {
+  if (!state.steps.length) return 0;
   const absT = state.steps[0].walkStart + clock;
-  return state.steps.some(s => s.category === "ride" && s.ride > 0 && s.ride < 5 &&
-    absT >= s.rideStart && absT < s.rideEnd);
+  for (const s of state.steps)
+    if (s.category === "ride" && s.ride > 0 && absT >= s.rideStart && absT < s.rideEnd) return s.ride;
+  return 0;
 }
 
 // Hard-coded "spin" animations: the avatar orbits the ride's icon during the
