@@ -282,6 +282,7 @@
     <button id="planToggle" title="Highlight the day's route with direction arrows">🗺 Plan</button>
     <button id="liveToggle" title="Show live standby wait times inside ride circles (ThemeParks.wiki)">⏱ Waits</button>
     <button id="llToggle" title="Show rides with a paid Lightning Lane available now, nearest first (ThemeParks.wiki)">⚡ LL</button>
+    <button id="audioToggle" title="Play a location's audio during the animation (when it has an audio clip)">🔊 Audio</button>
     <label class="ctl">Speed
       <select id="animSpeed" class="speed">
         <option value="20">Fast (20 min/s)</option>
@@ -2192,14 +2193,33 @@ function pause() {
   playing = false;
   document.getElementById("playBtn").textContent = "▶ Resume";
   if (animRAF) cancelAnimationFrame(animRAF);
+  stopAudio();
 }
 function stop() {
   playing = false; animClock = 0; activeStepIndex = -1;
   if (animRAF) cancelAnimationFrame(animRAF);
+  stopAudio();
   document.getElementById("playBtn").textContent = "▶ Play";
   document.getElementById("nowPlaying").classList.remove("show");
   document.querySelectorAll(".tl-row").forEach(r => r.style.background = "");
   draw();
+}
+
+// ---- animation audio: loop a location's clip while the avatar is there ----
+let audioOn = localStorage.getItem("ridesim.audio") !== "0";   // default on
+let audioEl = null, audioStep = -1;
+function stopAudio() { if (audioEl) { try { audioEl.pause(); } catch (e) {} } audioEl = null; audioStep = -1; }
+function setStepAudio(stepI, phase) {
+  // play during the dwell/ride phase of a location that defines an audio clip
+  let want = -1, url = "";
+  if (audioOn && stepI >= 0 && phase === "ride") {
+    const a = state.attractions.get(state.steps[stepI].attractionId);
+    if (a && a.audio) { want = stepI; url = a.audio; }
+  }
+  if (want === audioStep) return;          // already in the desired state
+  stopAudio();
+  audioStep = want;
+  if (want >= 0) { audioEl = new Audio(url); audioEl.loop = true; audioEl.play().catch(() => {}); }
 }
 
 function frame(ts) {
@@ -2207,11 +2227,11 @@ function frame(ts) {
   const dtSec = (ts - lastFrameTime) / 1000;
   lastFrameTime = ts;
   let speed = parseFloat(document.getElementById("animSpeed").value);
-  // on Slow/Normal, stretch every ride's animation to a consistent ~10s so the
-  // spin/track is watchable and a 5-min ride doesn't flash by faster than a 3-min one
+  // on Slow/Normal, stretch an animated ride (~8s) or an audio stop (~12s) to a
+  // consistent real-time window so the spin/track is watchable and the clip audible
   if (speed === 3 || speed === 8) {
-    const rd = currentRideDuration(animClock);
-    if (rd > 0) speed = Math.min(speed, rd / RIDE_ANIM_SEC);
+    const st = currentStretch(animClock);
+    if (st) speed = Math.min(speed, st.ride / st.target);
   }
   animClock += dtSec * speed;
 
@@ -2220,21 +2240,22 @@ function frame(ts) {
   renderAnimAt(animClock);
   if (playing) animRAF = requestAnimationFrame(frame);
 }
-const RIDE_ANIM_SEC = 8;   // target real-time length of an animated ride's on-ride animation
-// Duration (min) of the ride whose ride-phase the clock is in — but only if it
-// has an animation (spin or track). Plain rides return 0 so they play at the
-// chosen speed instead of being stretched.
-function currentRideDuration(clock) {
-  if (!state.steps.length) return 0;
+const RIDE_ANIM_SEC = 8;    // target real-time length of an animated ride
+const AUDIO_SEC = 12;       // target real-time length of an audio stop (so the clip is audible)
+// For the dwell the clock is in, return { ride, target } when it should be
+// stretched (has audio, or a ride with spin/track), else null.
+function currentStretch(clock) {
+  if (!state.steps.length) return null;
   const absT = state.steps[0].walkStart + clock;
   for (const s of state.steps) {
-    if (s.category === "ride" && s.ride > 0 && absT >= s.rideStart && absT < s.rideEnd) {
+    if (s.ride > 0 && absT >= s.rideStart && absT < s.rideEnd) {
       const a = state.attractions.get(s.attractionId);
-      const hasAnim = RIDE_SPIN[s.attractionId] || (a && Array.isArray(a.track) && a.track.length >= 2);
-      return hasAnim ? s.ride : 0;
+      if (audioOn && a && a.audio) return { ride: s.ride, target: AUDIO_SEC };
+      const hasAnim = s.category === "ride" && (RIDE_SPIN[s.attractionId] || (a && Array.isArray(a.track) && a.track.length >= 2));
+      return hasAnim ? { ride: s.ride, target: RIDE_ANIM_SEC } : null;
     }
   }
-  return 0;
+  return null;
 }
 
 // Hard-coded "spin" animations: the avatar orbits the ride's icon during the
@@ -2339,6 +2360,7 @@ function renderAnimAt(clock) {
     const idx = phase === "walk" ? 0 : phase === "wait" ? 1 : (stepCat === "ride" ? 2 : 1);
     if (rows[idx]) rows[idx].style.background = "rgba(92,200,255,0.14)";
   }
+  setStepAudio(stepI, phase);
 }
 
 // position along polyline by fraction of total length
@@ -2469,7 +2491,7 @@ function download(name, content, type) {
 const HINTS = {
   nodes: 'Array of { id, name?, isAttraction, x, y } — node coordinates in pixels.',
   connections: 'Array of { from, to:[...] }, or { from, to:"id", points:[{x,y}...] } for a polyline edge (length follows the polyline).',
-  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration, category?, closed?, hoverText?, avgWait?, waitId?, track? }. category ride|restaurant|shop|pin|restroom (default ride); only rides queue. thpwId = ThemeParks.wiki GUID matching live standby waits + Lightning Lane (else matched by name). avgWait = typical wait (min) used for timing when live is off. closed true = gray. hoverText shows on map hover. track = [{x,y}...] ride path; marker animates along it over the ride and it draws faintly.',
+  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration, category?, closed?, hoverText?, avgWait?, thpwId?, track?, audio? }. category ride|restaurant|shop|pin|restroom (default ride); only rides queue. thpwId = ThemeParks.wiki GUID matching live standby waits + Lightning Lane (else matched by name). avgWait = typical wait (min) used for timing when live is off. closed true = gray. hoverText shows on map hover. track = [{x,y}...] ride path; marker animates along it. audio = URL/file looped while the avatar is at this stop during animation.',
   waits: 'Tab-delimited: attraction_id  time_of_day(HH:MM)  avg_wait_minutes. Linearly interpolated.'
 };
 function openModal() {
@@ -2691,6 +2713,14 @@ document.getElementById("llToggle").onclick = () => {
   setLLToggleUI(); liveToggled();
 };
 setLLToggleUI();
+function setAudioToggleUI() { document.getElementById("audioToggle").classList.toggle("active", audioOn); }
+document.getElementById("audioToggle").onclick = () => {
+  audioOn = !audioOn;
+  localStorage.setItem("ridesim.audio", audioOn ? "1" : "0");
+  setAudioToggleUI();
+  if (!audioOn) stopAudio();
+};
+setAudioToggleUI();
 // live waits are fetched at the end of init() (once attractions exist)
 // refetch when the tab is refocused and the data is stale (>5 min)
 document.addEventListener("visibilitychange", () => {
