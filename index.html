@@ -1990,11 +1990,13 @@ function updateLiveCredit() {
     meta = " · park closed — waits hidden";
   } else if (liveWaits.fetchedAt) {
     meta = " · updated " + hmFromDate(new Date(liveWaits.fetchedAt));
-    // on-screen diagnostic (no console on mobile): how many rides matched the feed
-    let rides = 0, matched = 0;
-    state.attractions.forEach(a => { if (attrCat(a) === "ride") { rides++; if (liveEntry(a)) matched++; } });
-    meta += " · " + matched + "/" + rides + " rides matched";
-    if (matched === 0) meta += " — set ThPWID or check names";
+    // diagnostic: of rides that have a ThPWID set, how many matched the feed
+    // (placeholder rides without an ID — walk-to-exit etc. — are excluded)
+    let withId = 0, matched = 0;
+    state.attractions.forEach(a => { if (attrCat(a) === "ride" && a.thpwId) { withId++; if (liveEntry(a)) matched++; } });
+    meta += " · " + matched + "/" + withId + " ID'd rides matched";
+    if (withId === 0) meta += " — set ThPWID";
+    else if (matched === 0) meta += " — IDs not in feed";
   } else if (liveWaits.error) {
     meta = " · unavailable" + (liveWaits.errMsg ? " (" + liveWaits.errMsg + ")" : "");
   } else meta = " · loading…";
