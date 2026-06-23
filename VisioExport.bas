@@ -1014,6 +1014,8 @@ End Function
 ' ThemeParks.wiki entity GUID from Shape Data (Prop.ThPWID and aliases), used
 ' as the id to match standby waits + Lightning Lane. Tries internal name, then
 ' the visible label (Visio's NameU can differ from the label you typed).
+' A real id is a GUID (non-numeric); an empty numeric cell reads back as
+' "0.000", so a purely numeric value is treated as blank and skipped.
 Private Function ThpwIdOf(shp As Visio.Shape) As String
     On Error Resume Next
     Dim names As Variant: names = Array("ThPWID", "ThpwId", "ThemeParksID", "TPWikiID")
@@ -1021,7 +1023,7 @@ Private Function ThpwIdOf(shp As Visio.Shape) As String
     For i = LBound(names) To UBound(names)
         If shp.CellExistsU("Prop." & names(i), 0) Then
             vstr = Trim$(shp.CellsU("Prop." & names(i)).ResultStr(""))
-            If vstr <> "" Then ThpwIdOf = vstr: Exit Function
+            If vstr <> "" And Not IsNumeric(vstr) Then ThpwIdOf = vstr: Exit Function
         End If
     Next i
     For Row = 0 To shp.RowCount(visSectionProp) - 1
@@ -1029,7 +1031,7 @@ Private Function ThpwIdOf(shp As Visio.Shape) As String
         For i = LBound(names) To UBound(names)
             If lbl Like names(i) Then
                 vstr = Trim$(shp.CellsSRC(visSectionProp, Row, 0).ResultStr(""))
-                If vstr <> "" Then ThpwIdOf = vstr: Exit Function
+                If vstr <> "" And Not IsNumeric(vstr) Then ThpwIdOf = vstr: Exit Function
             End If
         Next i
     Next Row
