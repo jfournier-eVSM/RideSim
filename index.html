@@ -116,6 +116,19 @@
   .qt-credit a { color: var(--accent); text-decoration: none; font-weight: 600; }
   .qt-credit a:hover { text-decoration: underline; }
   .qt-credit .qt-meta { color: var(--muted); }
+  .ll-panel {
+    position: absolute; right: 12px; top: 12px; width: min(220px, 62%); max-height: 60%; overflow-y: auto;
+    background: rgba(16,22,36,.93); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px;
+    font-size: 12px; display: none; box-shadow: 0 4px 16px rgba(0,0,0,.45);
+  }
+  .ll-panel .ll-head { font-weight: 700; color: #ffd23b; margin-bottom: 4px; }
+  .ll-panel .ll-row { display: flex; flex-wrap: wrap; gap: 1px 8px; padding: 5px 0; border-top: 1px solid var(--border); }
+  .ll-panel .ll-nm { flex: 1 1 100%; font-weight: 600; }
+  .ll-panel .ll-meta { color: var(--muted); font-size: 11px; }
+  .ll-panel .ll-dist { color: var(--accent); font-size: 11px; margin-left: auto; }
+  .ll-panel .ll-empty { color: var(--muted); font-style: italic; }
+  .ll-panel .ll-credit { margin-top: 6px; font-size: 10px; color: var(--muted); }
+  .ll-panel .ll-credit a { color: var(--muted); }
   .nowplaying {
     position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
     background: rgba(16,22,36,.9); border: 1px solid var(--border); border-radius: 20px;
@@ -268,6 +281,7 @@
     <button id="graphToggle" title="Show/hide the node + path network (route stays visible)">◉ Graph</button>
     <button id="planToggle" title="Highlight the day's route with direction arrows">🗺 Plan</button>
     <button id="liveToggle" title="Show live wait times from Queue-Times.com inside ride circles">⏱ Waits</button>
+    <button id="llToggle" title="Show rides with a paid Lightning Lane available now, nearest first (ThemeParks.wiki)">⚡ LL</button>
     <label class="ctl">Speed
       <select id="animSpeed" class="speed">
         <option value="20">Fast (20 min/s)</option>
@@ -327,6 +341,7 @@
         <div class="row"><span class="swatch" style="background:#46557a;width:5px;height:5px;border-radius:50%"></span> Path junction</div>
       </div>
       <div class="qt-credit" id="qtCredit"></div>
+      <div class="ll-panel" id="llPanel"></div>
     </div>
   </div>
 
@@ -1723,6 +1738,7 @@ function draw(marker) {
     }
     if (live && inSeq >= 0) drawSeqBadge(X, Y, radius, inSeq + 1);  // keep order visible
     ctx.globalAlpha = 1;
+    if (showLL && llAvail(a)) drawLLBadge(X, Y, radius);            // ⚡ LL available now
   });
   if (hoverAttr) {
     const a = state.attractions.get(hoverAttr);
@@ -1906,6 +1922,116 @@ async function fetchLiveWaits() {
 }
 function startLiveRefresh() { if (!liveTimer) liveTimer = setInterval(fetchLiveWaits, 5 * 60 * 1000); }
 function stopLiveRefresh() { if (liveTimer) { clearInterval(liveTimer); liveTimer = null; } }
+
+/* ---------- Lightning Lane availability (ThemeParks.wiki) -------------- */
+let showLL = localStorage.getItem("ridesim.ll") === "1";
+const TP_PARK = "75ea578a-adc8-4116-a54d-dccb60765ef9";   // Walt Disney World — Magic Kingdom
+const TP_URL = "https://api.themeparks.wiki/v1/entity/" + TP_PARK + "/live";
+// like Queue-Times, try direct then public CORS proxies
+const TP_SOURCES = [
+  () => TP_URL,
+  () => "https://api.allorigins.win/raw?url=" + encodeURIComponent(TP_URL),
+  () => "https://corsproxy.io/?url=" + encodeURIComponent(TP_URL)
+];
+let tpSourceIdx = 0, llTimer = null;
+const llData = { byName: new Map(), fetchedAt: 0, error: false, anyAvail: false };
+let llMatch = { at: -1, map: new Map() };
+
+async function fetchOneTp(url) {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const data = await res.json();
+  if (!data || !Array.isArray(data.liveData)) throw new Error("unexpected shape");
+  return data;
+}
+async function fetchLL() {
+  let data = null, lastErr = null;
+  const order = [tpSourceIdx, ...TP_SOURCES.map((_, i) => i).filter(i => i !== tpSourceIdx)];
+  for (const i of order) {
+    try { data = await fetchOneTp(TP_SOURCES[i]()); tpSourceIdx = i; break; }
+    catch (e) { lastErr = e; }
+  }
+  if (data) {
+    const m = new Map();
+    data.liveData.forEach(e => {
+      const q = e.queue && e.queue.PAID_RETURN_TIME;
+      if (!q || !e.name) return;
+      m.set(normName(e.name), { name: e.name, state: q.state || "",
+        start: q.returnStart || null, end: q.returnEnd || null,
+        price: (q.price && q.price.formatted) ? q.price.formatted : "" });
+    });
+    llData.byName = m;
+    llData.anyAvail = [...m.values()].some(x => x.state === "AVAILABLE");
+    llData.fetchedAt = Date.now(); llData.error = false;
+  } else {
+    llData.error = true;
+    console.warn("ThemeParks.wiki LL fetch failed (all sources):", lastErr);
+  }
+  llMatch = { at: -1, map: new Map() };
+  if (playing) draw(); else refresh();
+}
+function startLLRefresh() { if (!llTimer) llTimer = setInterval(fetchLL, 5 * 60 * 1000); }
+function stopLLRefresh() { if (llTimer) { clearInterval(llTimer); llTimer = null; } }
+// match our ride to a Lightning Lane entry by name (substring), cached per fetch
+function llFor(a) {
+  if (!a || attrCat(a) !== "ride") return null;
+  if (llMatch.at !== llData.fetchedAt) llMatch = { at: llData.fetchedAt, map: new Map() };
+  if (llMatch.map.has(a.id)) return llMatch.map.get(a.id);
+  const n = normName(a.name); let res = null;
+  if (n.length >= 3) for (const e of llData.byName.values()) {
+    const ln = normName(e.name);
+    if (ln === n) { res = e; break; }
+    if (!res && n.length >= 4 && (ln.includes(n) || n.includes(ln))) res = e;
+  }
+  llMatch.map.set(a.id, res);
+  return res;
+}
+function llAvail(a) { const e = llFor(a); return (e && e.state === "AVAILABLE") ? e : null; }
+function t12FromISO(iso) {
+  if (!iso) return "";
+  const d = new Date(iso); if (isNaN(d.getTime())) return "";
+  let h = d.getHours(); const m = d.getMinutes(); const ap = h < 12 ? "AM" : "PM";
+  return (h % 12 || 12) + ":" + String(m).padStart(2, "0") + " " + ap;
+}
+function drawLLBadge(X, Y, r) {
+  const bx = X - r - 1, by = Y - r - 1;       // upper-left, opposite the order badge
+  ctx.beginPath(); ctx.arc(bx, by, 7, 0, 7);
+  ctx.fillStyle = "rgba(16,22,36,0.95)"; ctx.fill();
+  ctx.lineWidth = 1.5; ctx.strokeStyle = "#ffd23b"; ctx.stroke();
+  ctx.font = "9px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText("⚡", bx, by);
+}
+// proximity-sorted panel of rides with an LL available now
+function renderLLPanel() {
+  const el = document.getElementById("llPanel");
+  if (!el) return;
+  if (!showLL) { el.style.display = "none"; return; }
+  el.style.display = "block";
+  const from = startNode();
+  const rows = [];
+  state.attractions.forEach(a => {
+    const e = llAvail(a);
+    if (!e) return;
+    const r = dijkstra(from, a.entranceNodeId);
+    rows.push({ name: a.name, ll: e, dist: r ? r.dist : Infinity });
+  });
+  rows.sort((x, y) => x.dist - y.dist);
+  let html = '<div class="ll-head">⚡ Lightning Lanes — nearest</div>';
+  if (!rows.length) {
+    const msg = !llData.fetchedAt ? (llData.error ? "unavailable" : "loading…")
+      : (llData.anyAvail ? "none match your rides" : "none available right now");
+    html += '<div class="ll-empty">' + msg + '</div>';
+  } else {
+    rows.slice(0, 8).forEach(r => {
+      const meta = [r.ll.price, t12FromISO(r.ll.start)].filter(Boolean).join(" · ");
+      html += '<div class="ll-row"><span class="ll-nm">' + esc(r.name) + '</span>' +
+        '<span class="ll-meta">' + meta + '</span>' +
+        '<span class="ll-dist">' + (isFinite(r.dist) ? fmtFeet(r.dist * ftPerPx()) : "") + '</span></div>';
+    });
+  }
+  html += '<div class="ll-credit">LL data: <a href="https://themeparks.wiki" target="_blank" rel="noopener">ThemeParks.wiki</a></div>';
+  el.innerHTML = html;
+}
 // Attribution is REQUIRED whenever Queue-Times data is shown.
 function updateQtCredit() {
   const el = document.getElementById("qtCredit");
@@ -2095,6 +2221,7 @@ function refresh() {
   renderSeq();
   renderTimeline();
   renderSummary();
+  renderLLPanel();
   draw();
 }
 
@@ -2596,10 +2723,22 @@ document.getElementById("liveToggle").onclick = () => {
   }
 };
 setLiveToggleUI();
+function setLLToggleUI() { document.getElementById("llToggle").classList.toggle("active", showLL); }
+document.getElementById("llToggle").onclick = () => {
+  showLL = !showLL;
+  localStorage.setItem("ridesim.ll", showLL ? "1" : "0");
+  setLLToggleUI();
+  if (showLL) {
+    if (Date.now() - llData.fetchedAt > 60000) fetchLL(); else { renderLLPanel(); draw(); }
+    startLLRefresh();
+  } else { stopLLRefresh(); renderLLPanel(); draw(); }
+};
+setLLToggleUI();
 // live waits are fetched at the end of init() (once attractions exist)
 // refetch when the tab is refocused and the data is stale (>5 min)
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && showLiveWaits && Date.now() - liveWaits.fetchedAt > 5 * 60 * 1000) fetchLiveWaits();
+  if (!document.hidden && showLL && Date.now() - llData.fetchedAt > 5 * 60 * 1000) fetchLL();
 });
 // category filter chips (Rides / Dining)
 document.querySelectorAll("#attrFilter .chip").forEach(chip => {
@@ -2763,6 +2902,7 @@ function init() {
   // fetch live waits now that attractions exist; completion redraws (see fetchLiveWaits)
   fetchLiveWaits();
   if (showLiveWaits) startLiveRefresh();
+  if (showLL) { fetchLL(); startLLRefresh(); }
 }
 init();
 </script>
