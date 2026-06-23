@@ -47,8 +47,12 @@ Attribute VB_Name = "VisioExport"
 '   On Attraction:       Prop.RideDuration-> ride minutes (else DEFAULT_RIDE).
 '                        Also accepts Prop.Duration / RideTime / Ride / Minutes,
 '                        numeric or text ("12 min").
-'                        Prop.WaitID      -> Queue-Times.com ride id, written as
-'                        "waitId" so the planner can show live wait times.
+'                        Prop.ThPWID      -> ThemeParks.wiki entity GUID, written
+'                        as "thpwId"; the planner matches live standby waits +
+'                        Lightning Lane to this ride by it. Aliases:
+'                        ThpwId/ThemeParksID/TPWikiID.
+'                        Prop.WaitID      -> (legacy) Queue-Times.com ride id,
+'                        written as "waitId".
 '                        Prop.AvgWait     -> typical wait (minutes), written as
 '                        "avgWait"; used for sequence timing when live waits
 '                        aren't on. Aliases: AverageWait/AvgWaitTime/WaitMinutes.
@@ -346,7 +350,7 @@ Public Sub ExportRideSim()
         Dim trkJson As String: trkJson = ""
         If KeyExists(trackOf, "k" & shp.id) Then trkJson = trackOf("k" & shp.id)
         If attrCount > 0 Then attrJson = attrJson & "," & vbCrLf
-        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp), IsClosed(shp), WaitIdOf(shp), accJson, PropStr(shp, "Hovertext"), AvgWaitOf(shp), trkJson)
+        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp), IsClosed(shp), WaitIdOf(shp), accJson, PropStr(shp, "Hovertext"), AvgWaitOf(shp), trkJson, ThpwIdOf(shp))
         attrCount = attrCount + 1
     Next
 
@@ -977,16 +981,18 @@ End Function
 Private Function AttractionJson(id As String, nm As String, entId As String, exId As String, _
                           x As Variant, y As Variant, ride As Double, cat As String, _
                           closed As Boolean, waitId As String, accessIds As String, _
-                          hover As String, avgWait As Double, trackJson As String) As String
-    ' Emit category/closed/waitId/accessNodeIds/hoverText/avgWait only when set;
-    ' otherwise lines match the original shape so the web app (which defaults
-    ' category "ride", closed false) is happy.
+                          hover As String, avgWait As Double, trackJson As String, _
+                          thpw As String) As String
+    ' Emit each optional field only when set; otherwise lines match the original
+    ' shape so the web app (ride/open defaults) is happy.
     Dim catJson As String
     If cat <> "" And cat <> "ride" Then catJson = ", ""category"": """ & cat & """"
     Dim closedJson As String
     If closed Then closedJson = ", ""closed"": true"
     Dim waitJson As String
     If waitId <> "" Then waitJson = ", ""waitId"": """ & JStr(waitId) & """"
+    Dim thpwJson As String
+    If Trim$(thpw) <> "" Then thpwJson = ", ""thpwId"": """ & JStr(Trim$(thpw)) & """"
     Dim accJson As String
     If accessIds <> "" Then accJson = ", ""accessNodeIds"": " & accessIds
     Dim hoverJson As String
@@ -998,7 +1004,31 @@ Private Function AttractionJson(id As String, nm As String, entId As String, exI
     AttractionJson = "  { ""id"": """ & id & """, ""name"": """ & JStr(nm) & _
         """, ""entranceNodeId"": """ & entId & """, ""exitNodeId"": """ & exId & _
         """, ""displayLocation"": { ""x"": " & CLng(x) & ", ""y"": " & CLng(y) & _
-        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & closedJson & waitJson & accJson & hoverJson & avgJson & trkJson & " }"
+        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & closedJson & waitJson & thpwJson & accJson & hoverJson & avgJson & trkJson & " }"
+End Function
+
+' ThemeParks.wiki entity GUID from Shape Data (Prop.ThPWID and aliases), used
+' as the id to match standby waits + Lightning Lane. Tries internal name, then
+' the visible label (Visio's NameU can differ from the label you typed).
+Private Function ThpwIdOf(shp As Visio.Shape) As String
+    On Error Resume Next
+    Dim names As Variant: names = Array("ThPWID", "ThpwId", "ThemeParksID", "TPWikiID")
+    Dim i As Long, Row As Long, vstr As String
+    For i = LBound(names) To UBound(names)
+        If shp.CellExistsU("Prop." & names(i), 0) Then
+            vstr = Trim$(shp.CellsU("Prop." & names(i)).ResultStr(""))
+            If vstr <> "" Then ThpwIdOf = vstr: Exit Function
+        End If
+    Next i
+    For Row = 0 To shp.RowCount(visSectionProp) - 1
+        Dim lbl As String: lbl = shp.CellsSRC(visSectionProp, Row, 2).ResultStr(visNone)
+        For i = LBound(names) To UBound(names)
+            If lbl Like names(i) Then
+                vstr = Trim$(shp.CellsSRC(visSectionProp, Row, 0).ResultStr(""))
+                If vstr <> "" Then ThpwIdOf = vstr: Exit Function
+            End If
+        Next i
+    Next Row
 End Function
 
 ' Queue-Times ride id from the attraction's Shape Data (Prop.WaitID and aliases).
