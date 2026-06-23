@@ -2220,13 +2220,20 @@ function frame(ts) {
   renderAnimAt(animClock);
   if (playing) animRAF = requestAnimationFrame(frame);
 }
-const RIDE_ANIM_SEC = 10;   // target real-time length of a ride's on-ride animation
-// duration (min) of the ride whose ride-phase the clock is in, else 0
+const RIDE_ANIM_SEC = 8;   // target real-time length of an animated ride's on-ride animation
+// Duration (min) of the ride whose ride-phase the clock is in — but only if it
+// has an animation (spin or track). Plain rides return 0 so they play at the
+// chosen speed instead of being stretched.
 function currentRideDuration(clock) {
   if (!state.steps.length) return 0;
   const absT = state.steps[0].walkStart + clock;
-  for (const s of state.steps)
-    if (s.category === "ride" && s.ride > 0 && absT >= s.rideStart && absT < s.rideEnd) return s.ride;
+  for (const s of state.steps) {
+    if (s.category === "ride" && s.ride > 0 && absT >= s.rideStart && absT < s.rideEnd) {
+      const a = state.attractions.get(s.attractionId);
+      const hasAnim = RIDE_SPIN[s.attractionId] || (a && Array.isArray(a.track) && a.track.length >= 2);
+      return hasAnim ? s.ride : 0;
+    }
+  }
   return 0;
 }
 
