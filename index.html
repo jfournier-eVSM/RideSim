@@ -1353,9 +1353,10 @@ function interpWait(attractionId, timeMin) {
 }
 
 // Wait (minutes) used when computing sequence times. Priority:
-//   1. live Queue-Times wait when the overlay is on and the ride is open
-//   2. the ride's configured average (avgWait from Visio shape data)
-//   3. legacy time-of-day interpolation (if any TSV data exists)
+//   1. user override (waitOverride text field)
+//   2. live standby wait when the overlay is on and the ride is open
+//   3. time-of-day forecast / matrix (themeparks.wiki hourly forecast, or TSV)
+//   4. the ride's configured average (avgWait from Visio shape data)
 // Only rides queue; everything else is 0.
 function waitFor(a, arrivalMin) {
   if (!a || attrCat(a) !== "ride") return 0;
@@ -1364,6 +1365,8 @@ function waitFor(a, arrivalMin) {
     const live = liveWaitFor(a);
     if (live && live.open && typeof live.wait === "number") return live.wait;
   }
+  // time-of-day forecast / matrix beats a single static average when present
+  if (state.waits.has(a.id)) return interpWait(a.id, arrivalMin);
   if (typeof a.avgWait === "number" && a.avgWait >= 0) return a.avgWait;
   return interpWait(a.id, arrivalMin);
 }
@@ -1495,7 +1498,7 @@ let showLiveWaits = localStorage.getItem("ridesim.liveWaits") === "1"; // standb
 let showLL = localStorage.getItem("ridesim.ll") === "1";               // Lightning Lane overlay
 // byId: entity GUID -> entry; byName: normName -> entry; entry = {name, wait, open, ll}
 const liveWaits = { byId: new Map(), byName: new Map(), fetchedAt: 0, error: false, errMsg: "",
-                    anyOpen: false, anyLL: false, total: 0, withLL: 0 };
+                    anyOpen: false, anyLL: false, total: 0, withLL: 0, withFc: 0 };
 let liveTimer = null, tpSourceIdx = 0;
 const TP_PARK = "75ea578a-adc8-4116-a54d-dccb60765ef9";   // Walt Disney World — Magic Kingdom
 const TP_URL = "https://api.themeparks.wiki/v1/entity/" + TP_PARK + "/live";
@@ -1893,6 +1896,44 @@ async function fetchOneTp(url) {
 }
 // Single fetch from ThemeParks.wiki: standby waits + Lightning Lane, keyed by
 // entity GUID (and name, for fallback matching).
+// Park-local minutes-of-day from a forecast ISO timestamp. We read the literal
+// HH:MM (which already carries the park's -04:00/-05:00 offset) instead of using
+// Date(), so the value is stable regardless of the viewer's own timezone and can
+// be reused on any planning day — we only care about hour-of-day, not the date.
+function fcMinOfDay(iso) {
+  const m = /T(\d{2}):(\d{2})/.exec(String(iso || ""));
+  if (!m) return null;
+  return (+m[1]) * 60 + (+m[2]);
+}
+// Convert a themeparks.wiki forecast array into sorted [{t(min), w}] points,
+// or null when there's nothing usable.
+function parseForecast(arr) {
+  if (!Array.isArray(arr) || !arr.length) return null;
+  const fc = [];
+  arr.forEach(p => {
+    if (!p || typeof p.waitTime !== "number") return;
+    const t = fcMinOfDay(p.time);
+    if (t === null) return;
+    fc.push({ t: t, w: p.waitTime });
+  });
+  if (!fc.length) return null;
+  fc.sort((a, b) => a.t - b.t);
+  return fc;
+}
+// After a live fetch, seed state.waits from each ride's hourly forecast so the
+// time-of-day interpolation (interpWait) reflects today's expected curve.
+function applyForecastWaits() {
+  let n = 0;
+  state.attractions.forEach(a => {
+    if (attrCat(a) !== "ride") return;
+    const e = liveEntry(a);
+    if (e && e.fc && e.fc.length) {
+      state.waits.set(a.id, e.fc.map(p => ({ t: p.t, w: p.w })));
+      n++;
+    }
+  });
+  liveWaits.withFc = n;
+}
 async function fetchLive() {
   let data = null, lastErr = null;
   const order = [tpSourceIdx, ...TP_SOURCES.map((_, i) => i).filter(i => i !== tpSourceIdx)];
@@ -1911,7 +1952,7 @@ async function fetchLive() {
       if (ll) withLL++;
       const entry = { name: e.name || "",
         wait: (sb && typeof sb.waitTime === "number") ? sb.waitTime : null,
-        open: e.status === "OPERATING", ll: ll };
+        open: e.status === "OPERATING", ll: ll, fc: parseForecast(e.forecast) };
       byId.set(String(e.id), entry);
       if (entry.name) byName.set(normName(entry.name), entry);
     });
@@ -1920,6 +1961,7 @@ async function fetchLive() {
     liveWaits.anyOpen = [...byId.values()].some(e => e.open);
     liveWaits.anyLL = [...byId.values()].some(e => e.ll && e.ll.state === "AVAILABLE");
     liveWaits.fetchedAt = Date.now(); liveWaits.error = false; liveWaits.errMsg = "";
+    applyForecastWaits();   // seed the time-of-day wait matrix from hourly forecasts
   } else {
     liveWaits.error = true;
     liveWaits.errMsg = lastErr ? String(lastErr.message || lastErr).slice(0, 60) : "all sources failed";
@@ -1990,11 +2032,14 @@ function updateLiveCredit() {
     meta = " · park closed — waits hidden";
   } else if (liveWaits.fetchedAt) {
     meta = " · updated " + hmFromDate(new Date(liveWaits.fetchedAt));
-    // on-screen diagnostic (no console on mobile): how many rides matched the feed
-    let rides = 0, matched = 0;
-    state.attractions.forEach(a => { if (attrCat(a) === "ride") { rides++; if (liveEntry(a)) matched++; } });
-    meta += " · " + matched + "/" + rides + " rides matched";
-    if (matched === 0) meta += " — set ThPWID or check names";
+    // diagnostic: of rides that have a ThPWID set, how many matched the feed
+    // (placeholder rides without an ID — walk-to-exit etc. — are excluded)
+    let withId = 0, matched = 0;
+    state.attractions.forEach(a => { if (attrCat(a) === "ride" && a.thpwId) { withId++; if (liveEntry(a)) matched++; } });
+    meta += " · " + matched + "/" + withId + " ID'd rides matched";
+    if (withId === 0) meta += " — set ThPWID";
+    else if (matched === 0) meta += " — IDs not in feed";
+    if (liveWaits.withFc) meta += " · " + liveWaits.withFc + " forecast" + (liveWaits.withFc === 1 ? "" : "s");
   } else if (liveWaits.error) {
     meta = " · unavailable" + (liveWaits.errMsg ? " (" + liveWaits.errMsg + ")" : "");
   } else meta = " · loading…";
