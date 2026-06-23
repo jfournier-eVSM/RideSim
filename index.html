@@ -116,6 +116,19 @@
   .qt-credit a { color: var(--accent); text-decoration: none; font-weight: 600; }
   .qt-credit a:hover { text-decoration: underline; }
   .qt-credit .qt-meta { color: var(--muted); }
+  .ll-panel {
+    position: absolute; right: 12px; top: 12px; width: min(220px, 62%); max-height: 60%; overflow-y: auto;
+    background: rgba(16,22,36,.93); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px;
+    font-size: 12px; display: none; box-shadow: 0 4px 16px rgba(0,0,0,.45);
+  }
+  .ll-panel .ll-head { font-weight: 700; color: #ffd23b; margin-bottom: 4px; }
+  .ll-panel .ll-row { display: flex; flex-wrap: wrap; gap: 1px 8px; padding: 5px 0; border-top: 1px solid var(--border); }
+  .ll-panel .ll-nm { flex: 1 1 100%; font-weight: 600; }
+  .ll-panel .ll-meta { color: var(--muted); font-size: 11px; }
+  .ll-panel .ll-dist { color: var(--accent); font-size: 11px; margin-left: auto; }
+  .ll-panel .ll-empty { color: var(--muted); font-style: italic; }
+  .ll-panel .ll-credit { margin-top: 6px; font-size: 10px; color: var(--muted); }
+  .ll-panel .ll-credit a { color: var(--muted); }
   .nowplaying {
     position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
     background: rgba(16,22,36,.9); border: 1px solid var(--border); border-radius: 20px;
@@ -267,7 +280,9 @@
     <button id="bgFitBtn" style="display:none" title="Scale &amp; center the map over the nodes as a starting point">Fit</button>
     <button id="graphToggle" title="Show/hide the node + path network (route stays visible)">◉ Graph</button>
     <button id="planToggle" title="Highlight the day's route with direction arrows">🗺 Plan</button>
-    <button id="liveToggle" title="Show live wait times from Queue-Times.com inside ride circles">⏱ Waits</button>
+    <button id="liveToggle" title="Show live standby wait times inside ride circles (ThemeParks.wiki)">⏱ Waits</button>
+    <button id="llToggle" title="Show rides with a paid Lightning Lane available now, nearest first (ThemeParks.wiki)">⚡ LL</button>
+    <button id="audioToggle" title="Play a location's audio during the animation (when it has an audio clip)">🔊 Audio</button>
     <label class="ctl">Speed
       <select id="animSpeed" class="speed">
         <option value="20">Fast (20 min/s)</option>
@@ -327,6 +342,7 @@
         <div class="row"><span class="swatch" style="background:#46557a;width:5px;height:5px;border-radius:50%"></span> Path junction</div>
       </div>
       <div class="qt-credit" id="qtCredit"></div>
+      <div class="ll-panel" id="llPanel"></div>
     </div>
   </div>
 
@@ -1474,22 +1490,21 @@ let hoverAttr = null; // attraction id whose label is shown on map hover
 let labelHit = null;  // screen rect of the shown hover label (click/tap to add)
 let showPlan = localStorage.getItem("ridesim.showPlan") === "1"; // highlight the day's route
 let hoverStep = null; // step index whose walk segment is hovered (shows dist/time)
-let showLiveWaits = localStorage.getItem("ridesim.liveWaits") === "1"; // live queue-times overlay
-const liveWaits = { byId: new Map(), fetchedAt: 0, error: false, errMsg: "", anyOpen: false };
-let liveTimer = null;
-const QT_URL = "https://queue-times.com/parks/6/queue_times.json";
-// queue-times.com sends no CORS header, so a direct fetch is blocked when the
-// page is hosted cross-origin (e.g. GitHub Pages). Try sources in order:
-//  1) a same-origin snapshot (optional GitHub Action writes queue_times.json),
-//  2) the direct URL (works for local files / if CORS is ever added),
-//  3) public CORS proxies as a fallback.
-const QT_SOURCES = [
-  () => "queue_times.json",
-  () => QT_URL,
-  () => "https://api.allorigins.win/raw?url=" + encodeURIComponent(QT_URL),
-  () => "https://corsproxy.io/?url=" + encodeURIComponent(QT_URL)
+// One live source — ThemeParks.wiki — powers both standby waits and Lightning Lane.
+let showLiveWaits = localStorage.getItem("ridesim.liveWaits") === "1"; // standby wait overlay
+let showLL = localStorage.getItem("ridesim.ll") === "1";               // Lightning Lane overlay
+// byId: entity GUID -> entry; byName: normName -> entry; entry = {name, wait, open, ll}
+const liveWaits = { byId: new Map(), byName: new Map(), fetchedAt: 0, error: false, errMsg: "",
+                    anyOpen: false, anyLL: false, total: 0, withLL: 0 };
+let liveTimer = null, tpSourceIdx = 0;
+const TP_PARK = "75ea578a-adc8-4116-a54d-dccb60765ef9";   // Walt Disney World — Magic Kingdom
+const TP_URL = "https://api.themeparks.wiki/v1/entity/" + TP_PARK + "/live";
+// api.themeparks.wiki is behind Cloudflare; try direct then public CORS proxies.
+const TP_SOURCES = [
+  () => TP_URL,
+  () => "https://api.allorigins.win/raw?url=" + encodeURIComponent(TP_URL),
+  () => "https://corsproxy.io/?url=" + encodeURIComponent(TP_URL)
 ];
-let qtSourceIdx = 0; // remember which source worked last
 const bgImg = new Image();
 let bgReady = false;
 bgImg.onload = () => { bgReady = true; applyMapExtent(); computeView(); draw(); };
@@ -1702,9 +1717,10 @@ function draw(marker) {
       return;
     }
     const live = (showLiveWaits && liveWaits.anyOpen) ? liveWaitFor(a) : null;  // hide when park closed
+    const liveShow = live && (!live.open || typeof live.wait === "number");      // skip open-but-no-standby
     // pins are points of interest — half the diameter of other markers
     let radius = (hot ? sz.hot : sz.r) * (cat === "pin" ? 0.5 : 1), fill, inside = "", insideColor = "#08263a";
-    if (live) {
+    if (liveShow) {
       radius += 3;                                  // a touch bigger to fit the number
       if (!live.open) { fill = CLOSED_COLOR; inside = "✕"; insideColor = "#fff"; }
       else { fill = waitColor(live.wait); inside = String(live.wait); insideColor = "#fff"; }
@@ -1721,8 +1737,9 @@ function draw(marker) {
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillText(inside, X, Y);
     }
-    if (live && inSeq >= 0) drawSeqBadge(X, Y, radius, inSeq + 1);  // keep order visible
+    if (liveShow && inSeq >= 0) drawSeqBadge(X, Y, radius, inSeq + 1);  // keep order visible
     ctx.globalAlpha = 1;
+    if (showLL && llAvail(a)) drawLLBadge(X, Y, radius);            // ⚡ LL available now
   });
   if (hoverAttr) {
     const a = state.attractions.get(hoverAttr);
@@ -1826,33 +1843,27 @@ function wrapText(text, font, maxW) {
 }
 
 /* ---------- Live wait times (Queue-Times.com) --------------------------- */
-// Live wait for an attraction: explicit waitId first, else fall back to
-// matching the ride's name against the Queue-Times feed (short names like
-// "Space" / "Tron" are substrings of the official names). Cached per fetch.
+// Match an attraction to its live entry: ThPWID (themeparks GUID) first, else
+// fall back to matching the ride name against the feed. Cached per fetch.
 let liveMatch = { at: -1, map: new Map() };
 function normName(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
-function matchLiveByName(name) {
-  const n = normName(name);
-  if (n.length < 3) return null;
-  let partial = null;
-  for (const e of liveWaits.byId.values()) {
-    const ln = normName(e.name);
-    if (!ln) continue;
-    if (ln === n) return e;                                   // exact wins
-    if (!partial && n.length >= 4 && (ln.includes(n) || n.includes(ln))) partial = e;
-  }
-  return partial;
-}
-function liveWaitFor(a) {
-  if (!a) return null;
-  if (a.waitId != null && a.waitId !== "") return liveWaits.byId.get(String(a.waitId)) || null;
-  if (attrCat(a) !== "ride") return null;                     // only rides are in the feed
+function liveEntry(a) {
+  if (!a || attrCat(a) !== "ride") return null;
+  if (a.thpwId) return liveWaits.byId.get(String(a.thpwId)) || null;
   if (liveMatch.at !== liveWaits.fetchedAt) liveMatch = { at: liveWaits.fetchedAt, map: new Map() };
   if (liveMatch.map.has(a.id)) return liveMatch.map.get(a.id);
-  const m = matchLiveByName(a.name);
-  liveMatch.map.set(a.id, m);
-  return m;
+  const n = normName(a.name); let res = liveWaits.byName.get(n) || null;
+  if (!res && n.length >= 4) for (const e of liveWaits.byName.values()) {
+    const ln = normName(e.name);
+    if (ln.includes(n) || n.includes(ln)) { res = e; break; }
+  }
+  liveMatch.map.set(a.id, res);
+  return res;
 }
+// {wait, open} for the standby overlay/timing; {state,start,end,price} for LL.
+function liveWaitFor(a) { const e = liveEntry(a); return e ? { wait: e.wait, open: e.open } : null; }
+function llFor(a) { const e = liveEntry(a); return e ? e.ll : null; }
+function llAvail(a) { const ll = llFor(a); return (ll && ll.state === "AVAILABLE") ? ll : null; }
 function waitColor(w) {
   if (w <= 15) return "#3fae5a";
   if (w <= 30) return "#86b300";
@@ -1873,58 +1884,121 @@ function drawSeqBadge(X, Y, r, n) {
 function hmFromDate(d) {
   return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
 }
-async function fetchOneQt(url) {
+async function fetchOneTp(url) {
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error("HTTP " + res.status);
   const data = await res.json();
-  if (!data || (!Array.isArray(data.lands) && !Array.isArray(data.rides))) throw new Error("unexpected shape");
+  if (!data || !Array.isArray(data.liveData)) throw new Error("unexpected shape");
   return data;
 }
-async function fetchLiveWaits() {
+// Single fetch from ThemeParks.wiki: standby waits + Lightning Lane, keyed by
+// entity GUID (and name, for fallback matching).
+async function fetchLive() {
   let data = null, lastErr = null;
-  // try the last-known-good source first, then the rest in order
-  const order = [qtSourceIdx, ...QT_SOURCES.map((_, i) => i).filter(i => i !== qtSourceIdx)];
+  const order = [tpSourceIdx, ...TP_SOURCES.map((_, i) => i).filter(i => i !== tpSourceIdx)];
   for (const i of order) {
-    try { data = await fetchOneQt(QT_SOURCES[i]()); qtSourceIdx = i; break; }
+    try { data = await fetchOneTp(TP_SOURCES[i]()); tpSourceIdx = i; break; }
     catch (e) { lastErr = e; }
   }
   if (data) {
-    const m = new Map();
-    const add = r => { if (r && r.id != null) m.set(String(r.id), { wait: r.wait_time, open: !!r.is_open, name: r.name }); };
-    (data.lands || []).forEach(l => (l.rides || []).forEach(add));
-    (data.rides || []).forEach(add);
-    // park closed -> every ride reports closed; we then hide the wait overlay
-    liveWaits.anyOpen = [...m.values()].some(e => e.open);
-    liveWaits.byId = m; liveWaits.fetchedAt = Date.now(); liveWaits.error = false; liveWaits.errMsg = "";
+    const byId = new Map(), byName = new Map(); let withLL = 0;
+    data.liveData.forEach(e => {
+      if (!e || !e.id) return;
+      const sb = e.queue && e.queue.STANDBY;
+      const pr = e.queue && e.queue.PAID_RETURN_TIME;
+      const ll = pr ? { state: pr.state || "", start: pr.returnStart || null, end: pr.returnEnd || null,
+                        price: (pr.price && pr.price.formatted) ? pr.price.formatted : "" } : null;
+      if (ll) withLL++;
+      const entry = { name: e.name || "",
+        wait: (sb && typeof sb.waitTime === "number") ? sb.waitTime : null,
+        open: e.status === "OPERATING", ll: ll };
+      byId.set(String(e.id), entry);
+      if (entry.name) byName.set(normName(entry.name), entry);
+    });
+    liveWaits.byId = byId; liveWaits.byName = byName;
+    liveWaits.total = data.liveData.length; liveWaits.withLL = withLL;
+    liveWaits.anyOpen = [...byId.values()].some(e => e.open);
+    liveWaits.anyLL = [...byId.values()].some(e => e.ll && e.ll.state === "AVAILABLE");
+    liveWaits.fetchedAt = Date.now(); liveWaits.error = false; liveWaits.errMsg = "";
   } else {
     liveWaits.error = true;
     liveWaits.errMsg = lastErr ? String(lastErr.message || lastErr).slice(0, 60) : "all sources failed";
-    console.warn("Queue-Times fetch failed (all sources):", lastErr);
+    console.warn("ThemeParks.wiki fetch failed (all sources):", lastErr);
   }
-  updateQtCredit();
-  if (playing) draw(); else refresh();  // recompute sequence times against fresh waits
+  liveMatch = { at: -1, map: new Map() };
+  updateLiveCredit();
+  if (playing) draw(); else refresh();   // recompute sequence times against fresh waits
 }
-function startLiveRefresh() { if (!liveTimer) liveTimer = setInterval(fetchLiveWaits, 5 * 60 * 1000); }
-function stopLiveRefresh() { if (liveTimer) { clearInterval(liveTimer); liveTimer = null; } }
-// Attribution is REQUIRED whenever Queue-Times data is shown.
-function updateQtCredit() {
+function liveOn() { return showLiveWaits || showLL; }
+function startLiveRefresh() { if (!liveTimer) liveTimer = setInterval(fetchLive, 5 * 60 * 1000); }
+function stopLiveRefresh() { if (liveTimer && !liveOn()) { clearInterval(liveTimer); liveTimer = null; } }
+function t12FromISO(iso) {
+  if (!iso) return "";
+  const d = new Date(iso); if (isNaN(d.getTime())) return "";
+  let h = d.getHours(); const m = d.getMinutes(); const ap = h < 12 ? "AM" : "PM";
+  return (h % 12 || 12) + ":" + String(m).padStart(2, "0") + " " + ap;
+}
+function drawLLBadge(X, Y, r) {
+  const bx = X - r - 1, by = Y - r - 1;       // upper-left, opposite the order badge
+  ctx.beginPath(); ctx.arc(bx, by, 7, 0, 7);
+  ctx.fillStyle = "rgba(16,22,36,0.95)"; ctx.fill();
+  ctx.lineWidth = 1.5; ctx.strokeStyle = "#ffd23b"; ctx.stroke();
+  ctx.font = "9px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText("⚡", bx, by);
+}
+// proximity-sorted panel of rides with an LL available now
+function renderLLPanel() {
+  const el = document.getElementById("llPanel");
+  if (!el) return;
+  if (!showLL) { el.style.display = "none"; return; }
+  el.style.display = "block";
+  const from = startNode();
+  const rows = [];
+  state.attractions.forEach(a => {
+    const e = llAvail(a);
+    if (!e) return;
+    const r = dijkstra(from, a.entranceNodeId);
+    rows.push({ name: a.name, ll: e, dist: r ? r.dist : Infinity });
+  });
+  rows.sort((x, y) => x.dist - y.dist);
+  let html = '<div class="ll-head">⚡ Lightning Lanes — nearest</div>';
+  if (!rows.length) {
+    let msg;
+    if (!liveWaits.fetchedAt) msg = liveWaits.error ? "fetch failed (CORS/proxy)" : "loading…";
+    else if (liveWaits.withLL === 0) msg = "API exposes no LL data (" + liveWaits.total + " rides fetched)";
+    else if (!liveWaits.anyLL) msg = "no LL available now (" + liveWaits.withLL + "/" + liveWaits.total + " rides have the field)";
+    else msg = "available LLs don't match our rides (" + liveWaits.withLL + " have the field)";
+    html += '<div class="ll-empty">' + msg + '</div>';
+  } else {
+    rows.slice(0, 8).forEach(r => {
+      const meta = [r.ll.price, t12FromISO(r.ll.start)].filter(Boolean).join(" · ");
+      html += '<div class="ll-row"><span class="ll-nm">' + esc(r.name) + '</span>' +
+        '<span class="ll-meta">' + meta + '</span>' +
+        '<span class="ll-dist">' + (isFinite(r.dist) ? fmtFeet(r.dist * ftPerPx()) : "") + '</span></div>';
+    });
+  }
+  html += '<div class="ll-credit">LL data: <a href="https://themeparks.wiki" target="_blank" rel="noopener">ThemeParks.wiki</a></div>';
+  el.innerHTML = html;
+}
+// Attribution for ThemeParks.wiki; shown whenever an overlay is on.
+function updateLiveCredit() {
   const el = document.getElementById("qtCredit");
-  if (!showLiveWaits) { el.style.display = "none"; return; }
+  if (!liveOn()) { el.style.display = "none"; return; }
   el.style.display = "block";
   let meta = "";
-  if (liveWaits.fetchedAt && !liveWaits.anyOpen) {
+  if (liveWaits.fetchedAt && showLiveWaits && !liveWaits.anyOpen) {
     meta = " · park closed — waits hidden";
   } else if (liveWaits.fetchedAt) {
     meta = " · updated " + hmFromDate(new Date(liveWaits.fetchedAt));
-    // on-screen diagnostic (no console on mobile): how many rides matched a live wait
+    // on-screen diagnostic (no console on mobile): how many rides matched the feed
     let rides = 0, matched = 0;
-    state.attractions.forEach(a => { if (attrCat(a) === "ride") { rides++; if (liveWaitFor(a)) matched++; } });
+    state.attractions.forEach(a => { if (attrCat(a) === "ride") { rides++; if (liveEntry(a)) matched++; } });
     meta += " · " + matched + "/" + rides + " rides matched";
-    if (matched === 0) meta += " — set WaitID or check names";
+    if (matched === 0) meta += " — set ThPWID or check names";
   } else if (liveWaits.error) {
     meta = " · unavailable" + (liveWaits.errMsg ? " (" + liveWaits.errMsg + ")" : "");
   } else meta = " · loading…";
-  el.innerHTML = '<a href="https://queue-times.com/en-US" target="_blank" rel="noopener">Powered by Queue-Times.com</a>' +
+  el.innerHTML = '<a href="https://themeparks.wiki" target="_blank" rel="noopener">Data: ThemeParks.wiki</a>' +
     '<span class="qt-meta">' + meta + '</span>';
 }
 
@@ -2095,6 +2169,7 @@ function refresh() {
   renderSeq();
   renderTimeline();
   renderSummary();
+  renderLLPanel();
   draw();
 }
 
@@ -2118,14 +2193,33 @@ function pause() {
   playing = false;
   document.getElementById("playBtn").textContent = "▶ Resume";
   if (animRAF) cancelAnimationFrame(animRAF);
+  stopAudio();
 }
 function stop() {
   playing = false; animClock = 0; activeStepIndex = -1;
   if (animRAF) cancelAnimationFrame(animRAF);
+  stopAudio();
   document.getElementById("playBtn").textContent = "▶ Play";
   document.getElementById("nowPlaying").classList.remove("show");
   document.querySelectorAll(".tl-row").forEach(r => r.style.background = "");
   draw();
+}
+
+// ---- animation audio: loop a location's clip while the avatar is there ----
+let audioOn = localStorage.getItem("ridesim.audio") !== "0";   // default on
+let audioEl = null, audioStep = -1;
+function stopAudio() { if (audioEl) { try { audioEl.pause(); } catch (e) {} } audioEl = null; audioStep = -1; }
+function setStepAudio(stepI, phase) {
+  // play during the dwell/ride phase of a location that defines an audio clip
+  let want = -1, url = "";
+  if (audioOn && stepI >= 0 && phase === "ride") {
+    const a = state.attractions.get(state.steps[stepI].attractionId);
+    if (a && a.audio) { want = stepI; url = a.audio; }
+  }
+  if (want === audioStep) return;          // already in the desired state
+  stopAudio();
+  audioStep = want;
+  if (want >= 0) { audioEl = new Audio(url); audioEl.loop = true; audioEl.play().catch(() => {}); }
 }
 
 function frame(ts) {
@@ -2133,8 +2227,12 @@ function frame(ts) {
   const dtSec = (ts - lastFrameTime) / 1000;
   lastFrameTime = ts;
   let speed = parseFloat(document.getElementById("animSpeed").value);
-  // on Slow/Normal, crawl through short rides (<5 min) so their animation is watchable
-  if (inShortRide(animClock) && (speed === 3 || speed === 8)) speed = 0.25;  // 15 sim-sec per real sec
+  // on Slow/Normal, stretch an animated ride (~8s) or an audio stop (~12s) to a
+  // consistent real-time window so the spin/track is watchable and the clip audible
+  if (speed === 3 || speed === 8) {
+    const st = currentStretch(animClock);
+    if (st) speed = Math.min(speed, st.ride / st.target);
+  }
   animClock += dtSec * speed;
 
   const span = simSpanMin();
@@ -2142,12 +2240,22 @@ function frame(ts) {
   renderAnimAt(animClock);
   if (playing) animRAF = requestAnimationFrame(frame);
 }
-// true when the clock is within the ride phase of a short (<5 min) ride
-function inShortRide(clock) {
-  if (!state.steps.length) return false;
+const RIDE_ANIM_SEC = 8;    // target real-time length of an animated ride
+const AUDIO_SEC = 12;       // target real-time length of an audio stop (so the clip is audible)
+// For the dwell the clock is in, return { ride, target } when it should be
+// stretched (has audio, or a ride with spin/track), else null.
+function currentStretch(clock) {
+  if (!state.steps.length) return null;
   const absT = state.steps[0].walkStart + clock;
-  return state.steps.some(s => s.category === "ride" && s.ride > 0 && s.ride < 5 &&
-    absT >= s.rideStart && absT < s.rideEnd);
+  for (const s of state.steps) {
+    if (s.ride > 0 && absT >= s.rideStart && absT < s.rideEnd) {
+      const a = state.attractions.get(s.attractionId);
+      if (audioOn && a && a.audio) return { ride: s.ride, target: AUDIO_SEC };
+      const hasAnim = s.category === "ride" && (RIDE_SPIN[s.attractionId] || (a && Array.isArray(a.track) && a.track.length >= 2));
+      return hasAnim ? { ride: s.ride, target: RIDE_ANIM_SEC } : null;
+    }
+  }
+  return null;
 }
 
 // Hard-coded "spin" animations: the avatar orbits the ride's icon during the
@@ -2252,6 +2360,7 @@ function renderAnimAt(clock) {
     const idx = phase === "walk" ? 0 : phase === "wait" ? 1 : (stepCat === "ride" ? 2 : 1);
     if (rows[idx]) rows[idx].style.background = "rgba(92,200,255,0.14)";
   }
+  setStepAudio(stepI, phase);
 }
 
 // position along polyline by fraction of total length
@@ -2382,7 +2491,7 @@ function download(name, content, type) {
 const HINTS = {
   nodes: 'Array of { id, name?, isAttraction, x, y } — node coordinates in pixels.',
   connections: 'Array of { from, to:[...] }, or { from, to:"id", points:[{x,y}...] } for a polyline edge (length follows the polyline).',
-  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration, category?, closed?, hoverText?, avgWait?, waitId?, track? }. category ride|restaurant|shop|pin|restroom (default ride); only rides queue. avgWait = typical wait (min) used for timing; live waitId overrides when the live overlay is on. closed true = gray. hoverText shows on map hover. track = [{x,y}...] ride path; marker animates along it over the ride and it draws faintly.',
+  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration, category?, closed?, hoverText?, avgWait?, thpwId?, track?, audio? }. category ride|restaurant|shop|pin|restroom (default ride); only rides queue. thpwId = ThemeParks.wiki GUID matching live standby waits + Lightning Lane (else matched by name). avgWait = typical wait (min) used for timing when live is off. closed true = gray. hoverText shows on map hover. track = [{x,y}...] ride path; marker animates along it. audio = URL/file looped while the avatar is at this stop during animation.',
   waits: 'Tab-delimited: attraction_id  time_of_day(HH:MM)  avg_wait_minutes. Linearly interpolated.'
 };
 function openModal() {
@@ -2582,24 +2691,40 @@ document.getElementById("planToggle").onclick = () => {
 };
 setPlanToggleUI();
 
+// both overlays share one feed; (re)fetch if stale, else just re-render
+function liveToggled() {
+  if (liveOn()) {
+    if (Date.now() - liveWaits.fetchedAt > 60000) fetchLive();
+    else { updateLiveCredit(); refresh(); }
+    startLiveRefresh();
+  } else { updateLiveCredit(); refresh(); stopLiveRefresh(); }
+}
 function setLiveToggleUI() { document.getElementById("liveToggle").classList.toggle("active", showLiveWaits); }
 document.getElementById("liveToggle").onclick = () => {
   showLiveWaits = !showLiveWaits;
   localStorage.setItem("ridesim.liveWaits", showLiveWaits ? "1" : "0");
-  setLiveToggleUI();
-  if (showLiveWaits) {
-    if (Date.now() - liveWaits.fetchedAt > 60000) fetchLiveWaits();  // refetch if stale/empty
-    else { updateQtCredit(); refresh(); }
-    startLiveRefresh();
-  } else {
-    stopLiveRefresh(); updateQtCredit(); refresh();  // back to avg waits
-  }
+  setLiveToggleUI(); liveToggled();
 };
 setLiveToggleUI();
+function setLLToggleUI() { document.getElementById("llToggle").classList.toggle("active", showLL); }
+document.getElementById("llToggle").onclick = () => {
+  showLL = !showLL;
+  localStorage.setItem("ridesim.ll", showLL ? "1" : "0");
+  setLLToggleUI(); liveToggled();
+};
+setLLToggleUI();
+function setAudioToggleUI() { document.getElementById("audioToggle").classList.toggle("active", audioOn); }
+document.getElementById("audioToggle").onclick = () => {
+  audioOn = !audioOn;
+  localStorage.setItem("ridesim.audio", audioOn ? "1" : "0");
+  setAudioToggleUI();
+  if (!audioOn) stopAudio();
+};
+setAudioToggleUI();
 // live waits are fetched at the end of init() (once attractions exist)
 // refetch when the tab is refocused and the data is stale (>5 min)
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && showLiveWaits && Date.now() - liveWaits.fetchedAt > 5 * 60 * 1000) fetchLiveWaits();
+  if (!document.hidden && liveOn() && Date.now() - liveWaits.fetchedAt > 5 * 60 * 1000) fetchLive();
 });
 // category filter chips (Rides / Dining)
 document.querySelectorAll("#attrFilter .chip").forEach(chip => {
@@ -2760,9 +2885,9 @@ function init() {
   setStartNow();          // default the day to the current time
   resizeCanvas();
   refresh();
-  // fetch live waits now that attractions exist; completion redraws (see fetchLiveWaits)
-  fetchLiveWaits();
-  if (showLiveWaits) startLiveRefresh();
+  // one live feed (ThemeParks.wiki) powers waits + LL; fetch once attractions exist
+  fetchLive();
+  if (liveOn()) startLiveRefresh();
 }
 init();
 </script>
