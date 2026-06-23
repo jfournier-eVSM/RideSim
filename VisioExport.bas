@@ -59,6 +59,8 @@ Attribute VB_Name = "VisioExport"
 '   On any attraction:   Prop.Hovertext   -> extra detail shown on map hover
 '                        (multi-line OK), written as "hoverText".
 '                        Prop.Closed      -> true = drawn gray (not open today).
+'                        Prop.Audio       -> URL/file looped while the avatar is
+'                        at this stop during the animation, written as "audio".
 '
 ' SCALE BAR (sets real-world walking speed):
 '   Add two shapes named (or mastered) ScaleStart and ScaleEnd and a line
@@ -350,7 +352,7 @@ Public Sub ExportRideSim()
         Dim trkJson As String: trkJson = ""
         If KeyExists(trackOf, "k" & shp.id) Then trkJson = trackOf("k" & shp.id)
         If attrCount > 0 Then attrJson = attrJson & "," & vbCrLf
-        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp), IsClosed(shp), WaitIdOf(shp), accJson, PropStr(shp, "Hovertext"), AvgWaitOf(shp), trkJson, ThpwIdOf(shp))
+        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp), IsClosed(shp), WaitIdOf(shp), accJson, PropStr(shp, "Hovertext"), AvgWaitOf(shp), trkJson, ThpwIdOf(shp), PropStr(shp, "Audio"))
         attrCount = attrCount + 1
     Next
 
@@ -982,7 +984,7 @@ Private Function AttractionJson(id As String, nm As String, entId As String, exI
                           x As Variant, y As Variant, ride As Double, cat As String, _
                           closed As Boolean, waitId As String, accessIds As String, _
                           hover As String, avgWait As Double, trackJson As String, _
-                          thpw As String) As String
+                          thpw As String, audio As String) As String
     ' Emit each optional field only when set; otherwise lines match the original
     ' shape so the web app (ride/open defaults) is happy.
     Dim catJson As String
@@ -1001,10 +1003,12 @@ Private Function AttractionJson(id As String, nm As String, entId As String, exI
     If avgWait >= 0 Then avgJson = ", ""avgWait"": " & CLng(Round(avgWait))
     Dim trkJson As String
     If trackJson <> "" Then trkJson = ", ""track"": " & trackJson
+    Dim audioJson As String
+    If Trim$(audio) <> "" Then audioJson = ", ""audio"": """ & JStr(Trim$(audio)) & """"
     AttractionJson = "  { ""id"": """ & id & """, ""name"": """ & JStr(nm) & _
         """, ""entranceNodeId"": """ & entId & """, ""exitNodeId"": """ & exId & _
         """, ""displayLocation"": { ""x"": " & CLng(x) & ", ""y"": " & CLng(y) & _
-        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & closedJson & waitJson & thpwJson & accJson & hoverJson & avgJson & trkJson & " }"
+        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & closedJson & waitJson & thpwJson & accJson & hoverJson & avgJson & trkJson & audioJson & " }"
 End Function
 
 ' ThemeParks.wiki entity GUID from Shape Data (Prop.ThPWID and aliases), used
