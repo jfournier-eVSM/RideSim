@@ -1352,9 +1352,23 @@ function interpWait(attractionId, timeMin) {
   return arr[arr.length - 1].w;
 }
 
+// Current minute-of-day in the park's timezone (robust to the viewer's own
+// timezone). Null if Intl can't resolve it.
+function parkNowMin() {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York",
+      hour12: false, hour: "2-digit", minute: "2-digit" }).formatToParts(new Date());
+    let h = 0, m = 0;
+    parts.forEach(p => { if (p.type === "hour") h = +p.value; if (p.type === "minute") m = +p.value; });
+    return (h % 24) * 60 + m;
+  } catch (e) { return null; }
+}
+const LIVE_WAIT_WINDOW = 45;   // live standby only trusted for arrivals within this many min of now
+
 // Wait (minutes) used when computing sequence times. Priority:
 //   1. user override (waitOverride text field)
-//   2. live standby wait when the overlay is on and the ride is open
+//   2. live standby wait — but only for arrivals near the present; the live
+//      number is "right now", so a later arrival falls through to the forecast
 //   3. time-of-day forecast / matrix (themeparks.wiki hourly forecast, or TSV)
 //   4. the ride's configured average (avgWait from Visio shape data)
 // Only rides queue; everything else is 0.
@@ -1363,7 +1377,15 @@ function waitFor(a, arrivalMin) {
   if (typeof a.waitOverride === "number" && a.waitOverride >= 0) return a.waitOverride;  // user override wins
   if (showLiveWaits) {
     const live = liveWaitFor(a);
-    if (live && live.open && typeof live.wait === "number") return live.wait;
+    if (live && live.open && typeof live.wait === "number") {
+      // The live standby wait describes the queue at this instant. Only use it
+      // when arrival is near the current park time; otherwise prefer the
+      // hour-by-hour forecast (when we have one) so a 7pm arrival uses the 7pm
+      // forecast rather than the wait happening right now.
+      const now = parkNowMin();
+      const hasFc = state.waits.has(a.id);
+      if (!hasFc || now === null || Math.abs(arrivalMin - now) <= LIVE_WAIT_WINDOW) return live.wait;
+    }
   }
   // time-of-day forecast / matrix beats a single static average when present
   if (state.waits.has(a.id)) return interpWait(a.id, arrivalMin);
@@ -2345,7 +2367,7 @@ function renderAnimAt(clock) {
       const spin = RIDE_SPIN[s.attractionId];
       const disp = (a && a.displayLocation) || state.nodes.get(s.entranceNodeId);
       let rideScale = 0.5;  // default: avatar shrinks on rides with animation
-      let strokeColor = meta.color;
+      let strokeColor = s.category === "ride" ? waitColor(5) : meta.color;  // rides: 5-min-wait green
       // restaurants: avatar grows 10%; restrooms: avatar shrinks 10%
       if (s.category === "restaurant") rideScale = 1.1;
       else if (s.category === "restroom") rideScale = 0.9;
