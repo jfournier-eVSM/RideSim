@@ -18,7 +18,11 @@ function applyParkMeta() {
   const m = SAMPLE.meta || {};
   document.title = (m.name || "Ride") + " Ride Sequence Planner";
   const h1 = document.getElementById("parkTitle");
-  if (h1) h1.innerHTML = (m.emoji ? m.emoji + " " : "") + (m.name || "") + ' <span>Ride Sequence Planner</span>';
+  if (h1) h1.innerHTML =
+    '<a class="crumb" href="../../" title="Choose a different park">Parks</a>' +
+    '<span class="sep">›</span>' +
+    (m.emoji ? m.emoji + " " : "") + (m.name || "") +
+    ' <span>Ride Sequence Planner</span>';
 }
 
 // Attraction categories. A "restaurant" is an attraction with no wait time

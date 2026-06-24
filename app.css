@@ -38,6 +38,9 @@
   }
   header h1 { font-size: 16px; margin: 0; letter-spacing: .3px; }
   header h1 span { color: var(--accent2); }
+  header h1 a.crumb { color: var(--muted); text-decoration: none; font-weight: 600; }
+  header h1 a.crumb:hover { color: var(--accent); text-decoration: underline; }
+  header h1 .sep { color: var(--muted); margin: 0 7px; font-weight: 400; }
   .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-left: auto; }
   label.ctl { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
   input, select, button, textarea { font-family: inherit; }
