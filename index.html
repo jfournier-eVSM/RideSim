@@ -2338,9 +2338,19 @@ const RIDE_SPIN = {
   dumbo:                { dir: 1,  seg: 0 },
   carousel:             { dir: 1,  seg: 0 },
   astro_orbiter:        { dir: 1,  seg: 0 },
-  carousel_of_progress: { dir: -1, seg: 6, rPxOverride: 24 },
+  carousel_of_progress: { dir: -1, seg: 6, rPxOverride: 24, rPxMobile: 10 },
   teacups:              { type: "epi", dir: 1, revs: 5, spins: 6 }
 };
+
+// Avatar carries a persistent size through the animation: each restaurant visit
+// grows it 10%, each restroom shrinks it 10%, and the effect compounds — 20
+// restaurants make it huge, 20 restrooms make it tiny.
+function avatarFactor(cat) { return cat === "restaurant" ? 1.1 : cat === "restroom" ? 0.9 : 1; }
+function persistentScaleBefore(stepIndex) {
+  let p = 1;
+  for (let i = 0; i < stepIndex && i < state.steps.length; i++) p *= avatarFactor(state.steps[i].category);
+  return p;
+}
 
 function renderAnimAt(clock) {
   const base = state.steps[0].walkStart;
@@ -2353,13 +2363,13 @@ function renderAnimAt(clock) {
       stepI = i; phase = "walk";
       const frac = s.walk > 0 ? (absT - s.walkStart) / s.walk : 1;
       const p = pointAlong(s.routeCoords, frac);
-      marker = { x: p.x, y: p.y, stroke: "#5cc8ff", scale: 1 };
+      marker = { x: p.x, y: p.y, stroke: "#5cc8ff", scale: persistentScaleBefore(i) };
       info = "Walking to " + s.name;
       break;
     } else if (absT < s.waitEnd) {
       stepI = i; phase = "wait";
       const ent = state.nodes.get(s.entranceNodeId);
-      marker = { x: ent.x, y: ent.y, stroke: "#ff8a5c", scale: 1 };
+      marker = { x: ent.x, y: ent.y, stroke: "#ff8a5c", scale: persistentScaleBefore(i) };
       info = "Waiting for " + s.name + " — " + Math.round(absT - s.waitStart) + "/" + Math.round(s.wait) + " min";
       break;
     } else if (absT < s.rideEnd) {
@@ -2368,12 +2378,20 @@ function renderAnimAt(clock) {
       const meta = catMeta(s.category);
       const spin = RIDE_SPIN[s.attractionId];
       const disp = (a && a.displayLocation) || state.nodes.get(s.entranceNodeId);
-      let rideScale = 0.5;  // default: avatar shrinks on rides with animation
-      let strokeColor = s.category === "ride" ? waitColor(5) : meta.color;  // rides: 5-min-wait green
-      // restaurants: avatar grows 10%; restrooms: avatar shrinks 10%
-      if (s.category === "restaurant") rideScale = 1.1;
-      else if (s.category === "restroom") rideScale = 0.9;
-      else if (s.category !== "ride") rideScale = 1;  // shops/pins: normal size
+      const strokeColor = s.category === "ride" ? waitColor(5) : meta.color;  // rides: 5-min-wait green
+      // Persistent size compounds across the day. At a restaurant/restroom the
+      // change animates in over the dwell so the new size carries forward; rides
+      // shrink to half their current size (a transient effect during the ride).
+      const pBase = persistentScaleBefore(i);
+      let rideScale;
+      if (s.category === "restaurant" || s.category === "restroom") {
+        const g = s.ride > 0 ? Math.max(0, Math.min(1, (absT - s.rideStart) / s.ride)) : 1;
+        rideScale = pBase * (1 + (avatarFactor(s.category) - 1) * g);
+      } else if (s.category === "ride") {
+        rideScale = pBase * 0.5;
+      } else {
+        rideScale = pBase;  // shops/pins: no size change
+      }
       if (spin && disp && s.ride > 0) {
         const scale = view.scale || 1;
         const frac = Math.max(0, Math.min(0.999, (absT - s.rideStart) / s.ride));
@@ -2391,10 +2409,10 @@ function renderAnimAt(clock) {
           if (spin.seg > 0) f = Math.floor(f * spin.seg) / spin.seg;  // step in N segments
           const loops = spin.seg > 0 ? 1 : 5;                          // smooth orbits do 5 laps
           const ang = top + spin.dir * f * TAU * loops;
-          // default: just inside the rim; some rides pin a fixed radius. On
-          // mobile the icon is smaller, so halve the override to stay inside it.
-          const rPx = spin.rPxOverride
-            ? (mobileMQ.matches ? spin.rPxOverride / 2 : spin.rPxOverride)
+          // default: just inside the rim; some rides pin a fixed radius, with a
+          // smaller value on mobile where the icon is smaller.
+          const rPx = (mobileMQ.matches && spin.rPxMobile) ? spin.rPxMobile
+            : spin.rPxOverride ? spin.rPxOverride
             : (attrSize().r - 4);
           const rMap = rPx / scale;
           marker = { x: disp.x + rMap * Math.cos(ang), y: disp.y + rMap * Math.sin(ang), stroke: strokeColor, scale: rideScale };
@@ -2414,7 +2432,7 @@ function renderAnimAt(clock) {
   if (stepI < 0) {
     const s = state.steps[state.steps.length - 1];
     const ex = state.nodes.get(s.exitNodeId);
-    marker = { x: ex.x, y: ex.y, stroke: "#5fd38a", scale: 1 };
+    marker = { x: ex.x, y: ex.y, stroke: "#5fd38a", scale: persistentScaleBefore(state.steps.length) };
     phase = "done"; info = "Day complete!";
   }
   activeStepIndex = stepI;
