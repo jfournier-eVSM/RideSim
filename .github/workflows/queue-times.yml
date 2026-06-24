@@ -1,8 +1,10 @@
 name: Snapshot queue times
 
 # Fetches the Queue-Times.com feed server-side (no browser CORS) and commits it
-# as queue_times.json, which GitHub Pages then serves same-origin. The planner
-# picks up that same-origin file first, so live waits work with no CORS proxy.
+# as parks/<slug>/queue_times.json, which GitHub Pages then serves same-origin.
+#
+# Add a park: append a line to the matrix below (slug must match the folder
+# under parks/, id is the Queue-Times.com park id).
 #
 # Enable: Settings > Actions > General > Workflow permissions > Read and write.
 # GitHub schedules cron at best-effort ~5-min granularity (can run late).
@@ -22,16 +24,25 @@ concurrency:
 jobs:
   snapshot:
     runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1   # serialize commits to avoid push races between parks
+      matrix:
+        park:
+          - { slug: magic-kingdom, id: 6 }
     steps:
       - uses: actions/checkout@v4
       - name: Fetch feed
-        run: curl -sfS https://queue-times.com/parks/6/queue_times.json -o queue_times.json
+        run: |
+          curl -sfS "https://queue-times.com/parks/${{ matrix.park.id }}/queue_times.json" \
+            -o "parks/${{ matrix.park.slug }}/queue_times.json"
       - name: Commit if changed
         run: |
-          if ! git diff --quiet -- queue_times.json; then
+          file="parks/${{ matrix.park.slug }}/queue_times.json"
+          if ! git diff --quiet -- "$file"; then
             git config user.name  "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add queue_times.json
-            git commit -m "Update queue times [skip ci]"
+            git pull --rebase --autostash
+            git add "$file"
+            git commit -m "Update queue times (${{ matrix.park.slug }}) [skip ci]"
             git push
           fi

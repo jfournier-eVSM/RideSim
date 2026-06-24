@@ -1,0 +1,5 @@
+# Local preview server config — contains a machine-specific absolute path
+.claude/launch.json
+
+# Visio lock/temp files
+~$$*.~vsdm

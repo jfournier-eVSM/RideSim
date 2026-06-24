@@ -23,11 +23,14 @@ Attribute VB_Name = "VisioExport"
 '          edges. An Attraction must connect ONLY to Entrance/Exit shapes -
 '          never directly into the walkway graph.
 '   4. Run:  Tools > Macros > VisioExport.ExportRideSim   (or F5 in the editor).
-'   5. The macro writes the data straight into index.html, replacing the text
-'      between the // @RIDESIM:*:START / :END markers (the three SAMPLE arrays).
-'      It looks for index.html next to the saved .vsdx; set HTML_PATH_OVERRIDE
-'      below to point elsewhere. Just refresh the browser afterwards.
-'      If index.html / its markers aren't found, it falls back to writing
+'   5. The macro writes the data into the park's data file (park.js), replacing
+'      the text between the // @RIDESIM:*:START / :END markers (the SAMPLE arrays).
+'      The target is <docfolder>\parks\<active-page-slug>\park.js - i.e. one
+'      folder per park, named after the Visio PAGE (e.g. page "Epcot" -> the
+'      file parks\epcot\park.js). Set HTML_PATH_OVERRIDE below to force a path.
+'      The park folder + its park.js (with the markers and a SAMPLE.meta block)
+'      must already exist; just refresh the browser afterwards.
+'      If park.js / its markers aren't found, it falls back to writing
 '      "ridesim_export.txt" for manual paste. Output also goes to Ctrl+G.
 '
 ' AUTO-NAMING (no shape data needed - just set shape TEXT):
@@ -74,7 +77,8 @@ Attribute VB_Name = "VisioExport"
 '   over it. The exporter writes that shape's bounding box as SAMPLE.mapExtent,
 '   and the planner stretches background.png to exactly that rectangle - so any
 '   image resolution lines up automatically (no manual aligning). Export the
-'   same image as background.png next to index.html.
+'   same image as background.png into the park folder, next to its park.js
+'   (parks\<page-slug>\background.png).
 '
 ' RIDE TRACKS (optional, for "interesting" rides):
 '   Draw the ride path as a line/freeform shape on a layer named "Track", and
@@ -93,7 +97,9 @@ Option Explicit
 Private Const PPI As Double = 96#          ' pixels per inch (match your PNG export DPI)
 Private Const DEFAULT_RIDE As Double = 5#  ' fallback ride duration (minutes)
 Private Const OUT_FILE As String = "ridesim_export.txt"
-' Full path to index.html. Leave "" to look next to the saved Visio document.
+' Full path to the park data file (park.js) to patch. Leave "" to derive it
+' from the saved Visio doc + active page name: <docfolder>\parks\<page-slug>\park.js
+' (one folder per park, page name slugified -> folder name).
 Private Const HTML_PATH_OVERRIDE As String = ""
 ' Layer holding the background map image; its extent defines where the
 ' background.png is stretched in node coordinates (nodes sit inside it).
@@ -376,7 +382,7 @@ Public Sub ExportRideSim()
               attrBlock & vbCrLf & vbCrLf & mapBlock & vbCrLf & vbCrLf & scaleBlock & vbCrLf
     Debug.Print outText
 
-    ' --- emit: patch index.html in place, else write the .txt ----------------
+    ' --- emit: patch the park's park.js in place, else write the .txt --------
     '   (VBA And is not short-circuit, so guard with nested Ifs.)
     Dim msg As String, htmlP As String, didPatch As Boolean
     htmlP = HtmlPath()
@@ -391,7 +397,7 @@ Public Sub ExportRideSim()
         Dim savedTo As String: savedTo = WriteOut(outText)
         msg = "Exported " & nodeCount & " nodes, " & connCount & " connections, " & _
               attrCount & " attractions." & vbCrLf & _
-              "Could not patch index.html (not found or markers missing), wrote:" & vbCrLf & _
+              "Could not patch park.js (not found or markers missing), wrote:" & vbCrLf & _
               savedTo & vbCrLf & "Paste the blocks in manually."
     End If
 
@@ -404,8 +410,9 @@ Public Sub ExportRideSim()
     MsgBox msg, vbInformation, "RideSim Export"
 End Sub
 
-'--------------------------- index.html patching ------------------------------
-' Path to index.html: HTML_PATH_OVERRIDE if set, else next to the Visio doc.
+'--------------------------- park.js patching ---------------------------------
+' Path to the park data file: HTML_PATH_OVERRIDE if set, else
+' <docfolder>\parks\<active-page-slug>\park.js (one folder per park).
 Private Function HtmlPath() As String
     If HTML_PATH_OVERRIDE <> "" Then HtmlPath = HTML_PATH_OVERRIDE: Exit Function
     Dim folder As String
@@ -414,7 +421,25 @@ Private Function HtmlPath() As String
     On Error GoTo 0
     If folder = "" Then Exit Function
     If Right$(folder, 1) <> "\" Then folder = folder & "\"
-    HtmlPath = folder & "index.html"
+    Dim slug As String: slug = Slugify(Visio.ActivePage.Name)
+    If slug = "" Then Exit Function
+    HtmlPath = folder & "parks\" & slug & "\park.js"
+End Function
+
+' Lowercase, non-alphanumerics -> single hyphen, trimmed. "Magic Kingdom" -> "magic-kingdom".
+Private Function Slugify(ByVal s As String) As String
+    Dim i As Long, ch As String, out As String, lastDash As Boolean
+    s = LCase$(Trim$(s))
+    For i = 1 To Len(s)
+        ch = Mid$(s, i, 1)
+        If (ch >= "a" And ch <= "z") Or (ch >= "0" And ch <= "9") Then
+            out = out & ch: lastDash = False
+        ElseIf Not lastDash And out <> "" Then
+            out = out & "-": lastDash = True
+        End If
+    Next
+    Do While Right$(out, 1) = "-": out = Left$(out, Len(out) - 1): Loop
+    Slugify = out
 End Function
 
 ' Replace the text between each marker pair with its block. Returns False (and
@@ -434,7 +459,7 @@ Private Function PatchHtml(path As String, nodesBlock As String, connBlock As St
     PatchHtml = ok
     Exit Function
 fail:
-    Warn "Could not patch index.html: " & Err.Description
+    Warn "Could not patch park.js: " & Err.Description
     PatchHtml = False
 End Function
 
@@ -444,7 +469,7 @@ Private Function PatchSection(s As String, startTok As String, endTok As String,
     Dim p1 As Long, p2 As Long
     p1 = InStr(s, startTok): p2 = InStr(s, endTok)
     If p1 = 0 Or p2 = 0 Or p2 < p1 Then
-        Warn "Marker not found in index.html: " & startTok & " .. " & endTok
+        Warn "Marker not found in park.js: " & startTok & " .. " & endTok
         ok = False: PatchSection = s: Exit Function
     End If
     Dim eol As Long: eol = InStr(p1, s, vbLf)        ' end of the start-marker line
