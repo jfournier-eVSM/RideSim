@@ -41,7 +41,8 @@
   <script>
     // Add a park: drop a folder under parks/ and add an entry here.
     const PARKS = [
-      { slug: "magic-kingdom", name: "Magic Kingdom", emoji: "🏰" }
+      { slug: "magic-kingdom", name: "Magic Kingdom", emoji: "🏰" },
+	  { slug: "epcot",         name: "Epcot",         emoji: "🌐" }
     ];
     document.getElementById("parks").innerHTML = PARKS.map(p =>
       '<a class="park" href="parks/' + p.slug + '/">' +

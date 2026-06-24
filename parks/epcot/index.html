@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ride Sequence Planner</title>
+<link rel="stylesheet" href="../../app.css">
+</head>
+<body>
+<header>
+  <h1 id="parkTitle"><span>Ride Sequence Planner</span></h1>
+  <div class="controls">
+    <label class="ctl">Start <input type="time" id="startTime" value="09:00">
+      <button id="nowBtn" title="Set start to the current time">Now</button></label>
+    <label class="ctl">From <select id="startLoc" title="Where you are right now — the day starts here"></select></label>
+    <label class="ctl" style="display:none">ft/px <input type="number" id="ftPerPx" value="4" min="0.1" step="0.5" title="Feet per pixel — scales walk distance"></label>
+    <label class="ctl" id="mapOpacityCtl">Map <input type="range" id="bgOpacity" min="0" max="100" value="100" style="width:70px" title="Background image opacity"></label>
+    <button id="bgAdjustBtn" style="display:none" title="Drag to move the map, scroll to scale it, to align it with the nodes">⤢ Align Map</button>
+    <button id="bgFitBtn" style="display:none" title="Scale &amp; center the map over the nodes as a starting point">Fit</button>
+    <button id="graphToggle" title="Show/hide the node + path network (route stays visible)">◉ Graph</button>
+    <button id="planToggle" title="Highlight the day's route with direction arrows">🗺 Plan</button>
+    <button id="liveToggle" title="Show live standby wait times inside ride circles (ThemeParks.wiki)">⏱ Waits</button>
+    <button id="llToggle" title="Show rides with a paid Lightning Lane available now, nearest first (ThemeParks.wiki)">⚡ LL</button>
+    <button id="audioToggle" title="Play a location's audio during the animation (when it has an audio clip)">🔊 Audio</button>
+    <label class="ctl">Speed
+      <select id="animSpeed" class="speed">
+        <option value="20">Fast (20 min/s)</option>
+        <option value="8" selected>Normal (8 min/s)</option>
+        <option value="3">Slow (3 min/s)</option>
+        <option value="60">Instant (60 min/s)</option>
+      </select>
+    </label>
+    <button id="playBtn" class="primary">▶ Play</button>
+    <button id="stopBtn">■ Stop</button>
+    <button id="addNodeBtn" style="display:none" title="Double-click the map to capture node coordinates">➕ Add Nodes</button>
+    <button id="dataBtn">📋 Data</button>
+    <button id="exportBtn">⬇ Export</button>
+  </div>
+</header>
+
+<main>
+  <!-- LEFT: attraction picker -->
+  <div class="col left">
+    <div class="section-title">Attractions — click to add</div>
+    <div class="attr-filter" id="attrFilter">
+      <button class="chip active" data-cat="ride"><span class="swatch" style="background:var(--accent2)"></span>Rides</button>
+      <button class="chip active" data-cat="restaurant"><span class="swatch" style="background:var(--rest)"></span>Dining</button>
+      <button class="chip active" data-cat="shop"><span class="swatch" style="background:var(--shop)"></span>Shops</button>
+      <button class="chip active" data-cat="pin"><span class="swatch" style="background:var(--pin)"></span>Pins</button>
+      <button class="chip active" data-cat="restroom"><span class="swatch" style="background:var(--restroom)"></span>Restrooms</button>
+    </div>
+    <div class="scroll" id="attrList"></div>
+  </div>
+
+  <!-- CENTER: map -->
+  <div class="col center">
+    <div class="canvas-wrap">
+      <canvas id="map"></canvas>
+      <div class="nowplaying" id="nowPlaying"></div>
+      <div class="coord-readout" id="coordReadout">move over the map…</div>
+      <div class="bg-readout" id="bgReadout"></div>
+      <div class="seg-tip" id="segTip"></div>
+      <div class="capture-panel" id="capturePanel">
+        <h4>Captured Nodes <span id="captureCount" style="color:var(--muted);font-weight:400">(0)</span></h4>
+        <p class="cap-hint">Double-click = junction · Shift+double-click = attraction</p>
+        <textarea id="captureOut" readonly spellcheck="false" placeholder="Double-click the map to capture nodes…"></textarea>
+        <div class="btns">
+          <button id="captureCopy">Copy</button>
+          <button id="captureUndo">Undo</button>
+          <button id="captureClear" class="danger">Clear</button>
+        </div>
+      </div>
+      <div class="map-legend">
+        <div class="row"><span class="swatch" style="background:var(--walk)"></span> Walk path</div>
+        <div class="row"><span class="swatch" style="background:var(--accent2);width:10px;height:10px;border-radius:50%"></span> Ride</div>
+        <div class="row"><span class="swatch" style="background:var(--rest);width:10px;height:10px;border-radius:50%"></span> Restaurant</div>
+        <div class="row"><span class="swatch" style="background:var(--shop);width:10px;height:10px;border-radius:50%"></span> Shop</div>
+        <div class="row"><span class="swatch" style="background:var(--pin);width:10px;height:10px;border-radius:50%"></span> Pin</div>
+        <div class="row"><span style="width:14px;text-align:center">🚻</span> Restroom</div>
+        <div class="row"><span class="swatch" style="background:#6b7687;width:10px;height:10px;border-radius:50%"></span> Closed</div>
+        <div class="row"><span class="swatch" style="background:#46557a;width:5px;height:5px;border-radius:50%"></span> Path junction</div>
+      </div>
+      <div class="qt-credit" id="qtCredit"></div>
+      <div class="ll-panel" id="llPanel"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: sequence + timeline -->
+  <div class="col right">
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Your Sequence</span>
+      <button id="clearSeq" class="danger" style="padding:3px 9px;font-size:11px">Clear</button>
+    </div>
+    <div id="seqList" style="max-height:32vh;overflow-y:auto"></div>
+    <div class="section-title">Timeline</div>
+    <div class="scroll" id="timeline"></div>
+    <div class="summary" id="summary"></div>
+  </div>
+</main>
+
+<!-- DATA MODAL -->
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <h2>Load / Edit Data</h2>
+    <div class="modal-body">
+      <div class="tabs">
+        <div class="tab active" data-tab="nodes">Nodes</div>
+        <div class="tab" data-tab="connections">Connections</div>
+        <div class="tab" data-tab="attractions">Attractions</div>
+        <div class="tab" data-tab="waits">Wait Times (TSV)</div>
+      </div>
+      <p class="hint" id="paneHint"></p>
+      <div class="pane active" data-pane="nodes"><textarea id="ta-nodes" spellcheck="false"></textarea></div>
+      <div class="pane" data-pane="connections"><textarea id="ta-connections" spellcheck="false"></textarea></div>
+      <div class="pane" data-pane="attractions"><textarea id="ta-attractions" spellcheck="false"></textarea></div>
+      <div class="pane" data-pane="waits"><textarea id="ta-waits" spellcheck="false"></textarea></div>
+      <p class="hint">Or load files:
+        <input type="file" id="fileLoad" accept=".json,.txt,.tsv,.csv" multiple style="font-size:11px">
+        (auto-detects by content)
+      </p>
+    </div>
+    <div class="modal-foot">
+      <span id="modalMsg" class="err"></span>
+      <button id="loadSample">Reset to Sample</button>
+      <button id="applyData" class="primary">Apply &amp; Render</button>
+      <button id="closeModal">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="./park.js"></script>
+<script src="../../app.js"></script>
+</body>
+</html>
