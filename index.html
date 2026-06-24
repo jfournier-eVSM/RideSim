@@ -2338,7 +2338,7 @@ const RIDE_SPIN = {
   dumbo:                { dir: 1,  seg: 0 },
   carousel:             { dir: 1,  seg: 0 },
   astro_orbiter:        { dir: 1,  seg: 0 },
-  carousel_of_progress: { dir: -1, seg: 6, rPxDesktop: 24 },
+  carousel_of_progress: { dir: -1, seg: 6, rPxOverride: 24 },
   teacups:              { type: "epi", dir: 1, revs: 5, spins: 6 }
 };
 
@@ -2391,8 +2391,9 @@ function renderAnimAt(clock) {
           if (spin.seg > 0) f = Math.floor(f * spin.seg) / spin.seg;  // step in N segments
           const loops = spin.seg > 0 ? 1 : 5;                          // smooth orbits do 5 laps
           const ang = top + spin.dir * f * TAU * loops;
-          // default: just inside the rim; some rides override the radius on desktop
-          const rPx = (spin.rPxDesktop && !mobileMQ.matches) ? spin.rPxDesktop : (attrSize().r - 4);
+          // default: just inside the rim; some rides pin a fixed radius (so the
+          // orbit looks the same on mobile as on desktop)
+          const rPx = spin.rPxOverride || (attrSize().r - 4);
           const rMap = rPx / scale;
           marker = { x: disp.x + rMap * Math.cos(ang), y: disp.y + rMap * Math.sin(ang), stroke: strokeColor, scale: rideScale };
         }
