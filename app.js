@@ -37,6 +37,7 @@ function attrCat(a) {
 // Closed = not open at the park today; shown as a flat gray circle.
 function attrClosed(a) { return !!(a && a.closed); }
 const CLOSED_COLOR = "#6b7687";
+const LL_COLOR = "#ffd23b";   // gold — Lightning Lane countdown fill + bolt badge
 // Marker colors per category: { off: not in sequence, on: in sequence }.
 const ATTR_COLORS = {
   ride:       { off: "#ffcc4d", on: "#5cc8ff" },
@@ -609,9 +610,14 @@ function draw(marker) {
     }
     const live = (showLiveWaits && liveWaits.anyOpen) ? liveWaitFor(a) : null;  // hide when park closed
     const liveShow = live && (!live.open || typeof live.wait === "number");      // skip open-but-no-standby
+    const ll = showLL ? llAvail(a) : null;          // AVAILABLE Lightning Lane (countdown takes over the center)
     // pins are points of interest — half the diameter of other markers
     let radius = (hot ? sz.hot : sz.r) * (cat === "pin" ? 0.5 : 1), fill, inside = "", insideColor = "#08263a";
-    if (liveShow) {
+    if (ll) {
+      // LL available — show whole minutes until the return window opens, in gold.
+      radius += 3;
+      fill = LL_COLOR; inside = String(llMinutesUntil(ll)); insideColor = "#08263a";
+    } else if (liveShow) {
       radius += 3;                                  // a touch bigger to fit the number
       if (!live.open) { fill = CLOSED_COLOR; inside = "✕"; insideColor = "#fff"; }
       else { fill = waitColor(live.wait); inside = String(live.wait); insideColor = "#fff"; }
@@ -628,9 +634,9 @@ function draw(marker) {
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillText(inside, X, Y);
     }
-    if (liveShow && inSeq >= 0) drawSeqBadge(X, Y, radius, inSeq + 1);  // keep order visible
+    if ((liveShow || ll) && inSeq >= 0) drawSeqBadge(X, Y, radius, inSeq + 1);  // keep order visible
     ctx.globalAlpha = 1;
-    if (showLL && llAvail(a)) drawLLBadge(X, Y, radius);            // ⚡ LL available now
+    if (ll) drawLLBadge(X, Y, radius);            // ⚡ bolt at the bottom of LL rides
   });
   if (hoverAttr) {
     const a = state.attractions.get(hoverAttr);
@@ -756,6 +762,12 @@ function liveEntry(a) {
 function liveWaitFor(a) { const e = liveEntry(a); return e ? { wait: e.wait, open: e.open } : null; }
 function llFor(a) { const e = liveEntry(a); return e ? e.ll : null; }
 function llAvail(a) { const ll = llFor(a); return (ll && ll.state === "AVAILABLE") ? ll : null; }
+// Whole minutes from now until an LL's next return window opens (0 if already open).
+function llMinutesUntil(ll) {
+  if (!ll || !ll.start) return null;
+  const d = new Date(ll.start); if (isNaN(d.getTime())) return null;
+  return Math.max(0, Math.round((d.getTime() - Date.now()) / 60000));
+}
 function waitColor(w) {
   if (w <= 15) return "#3fae5a";
   if (w <= 30) return "#86b300";
@@ -835,9 +847,17 @@ async function fetchLive() {
     data.liveData.forEach(e => {
       if (!e || !e.id) return;
       const sb = e.queue && e.queue.STANDBY;
+      // Lightning Lane comes in two flavors: RETURN_TIME (Multi Pass — broad,
+      // no price) and PAID_RETURN_TIME (Individual LL — a-la-carte, has price).
+      // Take whichever source is AVAILABLE; flag the paid one so the UI can
+      // show its price.
+      const rt = e.queue && e.queue.RETURN_TIME;
       const pr = e.queue && e.queue.PAID_RETURN_TIME;
-      const ll = pr ? { state: pr.state || "", start: pr.returnStart || null, end: pr.returnEnd || null,
-                        price: (pr.price && pr.price.formatted) ? pr.price.formatted : "" } : null;
+      const cand = [rt, pr].filter(Boolean);
+      const src = cand.find(x => x.state === "AVAILABLE") || cand[0] || null;
+      const ll = src ? { state: src.state || "", start: src.returnStart || null, end: src.returnEnd || null,
+                         price: (src.price && src.price.formatted) ? src.price.formatted : "",
+                         paid: src === pr } : null;
       if (ll) withLL++;
       const entry = { name: e.name || "",
         wait: (sb && typeof sb.waitTime === "number") ? sb.waitTime : null,
@@ -870,10 +890,10 @@ function t12FromISO(iso) {
   return (h % 12 || 12) + ":" + String(m).padStart(2, "0") + " " + ap;
 }
 function drawLLBadge(X, Y, r) {
-  const bx = X - r - 1, by = Y - r - 1;       // upper-left, opposite the order badge
+  const bx = X, by = Y + r + 1;                // bottom-center, below the circle
   ctx.beginPath(); ctx.arc(bx, by, 7, 0, 7);
   ctx.fillStyle = "rgba(16,22,36,0.95)"; ctx.fill();
-  ctx.lineWidth = 1.5; ctx.strokeStyle = "#ffd23b"; ctx.stroke();
+  ctx.lineWidth = 1.5; ctx.strokeStyle = LL_COLOR; ctx.stroke();
   ctx.font = "9px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.fillText("⚡", bx, by);
 }
