@@ -1751,12 +1751,13 @@ function draw(marker) {
 
   // marker
   if (marker) {
-    const ms = marker.scale || 1;                 // avatar shrinks on a ride (positioning unchanged)
+    const ms = marker.scale || 1;                 // avatar scales on rides or at restaurants/restrooms
+    const AVATAR_PURPLE = "#9d7bff";              // always use ride purple for fill
     ctx.beginPath(); ctx.arc(tx(marker.x), ty(marker.y), 7 * ms, 0, 7);
-    ctx.fillStyle = marker.color || "#fff"; ctx.fill();
-    ctx.lineWidth = 2; ctx.strokeStyle = "#0f1420"; ctx.stroke();
+    ctx.fillStyle = AVATAR_PURPLE; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = marker.stroke || "#5cc8ff"; ctx.stroke();
     ctx.beginPath(); ctx.arc(tx(marker.x), ty(marker.y), 11 * ms, 0, 7);
-    ctx.strokeStyle = marker.color || "#fff"; ctx.globalAlpha = .4; ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = marker.stroke || "#5cc8ff"; ctx.globalAlpha = .4; ctx.stroke(); ctx.globalAlpha = 1;
   }
 }
 function drawPath(coords, color, lw, bright) {
@@ -2328,13 +2329,13 @@ function renderAnimAt(clock) {
       stepI = i; phase = "walk";
       const frac = s.walk > 0 ? (absT - s.walkStart) / s.walk : 1;
       const p = pointAlong(s.routeCoords, frac);
-      marker = { x: p.x, y: p.y, color: "#5cc8ff" };
+      marker = { x: p.x, y: p.y, stroke: "#5cc8ff", scale: 1 };
       info = "Walking to " + s.name;
       break;
     } else if (absT < s.waitEnd) {
       stepI = i; phase = "wait";
       const ent = state.nodes.get(s.entranceNodeId);
-      marker = { x: ent.x, y: ent.y, color: "#ff8a5c" };
+      marker = { x: ent.x, y: ent.y, stroke: "#ff8a5c", scale: 1 };
       info = "Waiting for " + s.name + " — " + Math.round(absT - s.waitStart) + "/" + Math.round(s.wait) + " min";
       break;
     } else if (absT < s.rideEnd) {
@@ -2343,6 +2344,12 @@ function renderAnimAt(clock) {
       const meta = catMeta(s.category);
       const spin = RIDE_SPIN[s.attractionId];
       const disp = (a && a.displayLocation) || state.nodes.get(s.entranceNodeId);
+      let rideScale = 0.5;  // default: avatar shrinks on rides with animation
+      let strokeColor = meta.color;
+      // restaurants: avatar grows 10%; restrooms: avatar shrinks 10%
+      if (s.category === "restaurant") rideScale = 1.1;
+      else if (s.category === "restroom") rideScale = 0.9;
+      else if (s.category !== "ride") rideScale = 1;  // shops/pins: normal size
       if (spin && disp && s.ride > 0) {
         const scale = view.scale || 1;
         const frac = Math.max(0, Math.min(0.999, (absT - s.rideStart) / s.ride));
@@ -2353,7 +2360,7 @@ function renderAnimAt(clock) {
           const bigAng = top + spin.dir * frac * TAU * spin.revs;
           const smallAng = top + spin.dir * frac * TAU * spin.revs * spin.spins;
           marker = { x: disp.x + Rbig * Math.cos(bigAng) + rSmall * Math.cos(smallAng),
-                     y: disp.y + Rbig * Math.sin(bigAng) + rSmall * Math.sin(smallAng), color: meta.color };
+                     y: disp.y + Rbig * Math.sin(bigAng) + rSmall * Math.sin(smallAng), stroke: strokeColor, scale: rideScale };
         } else {
           // orbit the avatar around the icon's circumference (no overlap)
           let f = frac;
@@ -2363,17 +2370,16 @@ function renderAnimAt(clock) {
           // default: just inside the rim; some rides override the radius on desktop
           const rPx = (spin.rPxDesktop && !mobileMQ.matches) ? spin.rPxDesktop : (attrSize().r - 4);
           const rMap = rPx / scale;
-          marker = { x: disp.x + rMap * Math.cos(ang), y: disp.y + rMap * Math.sin(ang), color: meta.color };
+          marker = { x: disp.x + rMap * Math.cos(ang), y: disp.y + rMap * Math.sin(ang), stroke: strokeColor, scale: rideScale };
         }
       } else if (a && Array.isArray(a.track) && a.track.length >= 2 && s.ride > 0) {
         // follow the ride track over the ride duration
         const frac = (absT - s.waitEnd) / s.ride;
         const p = pointAlong(a.track, frac);
-        marker = { x: p.x, y: p.y, color: meta.color };
+        marker = { x: p.x, y: p.y, stroke: strokeColor, scale: rideScale };
       } else {
-        marker = { x: disp.x, y: disp.y, color: meta.color };
+        marker = { x: disp.x, y: disp.y, stroke: strokeColor, scale: rideScale };
       }
-      if (marker) marker.scale = 0.5;     // half-size avatar while on the ride
       info = meta.anim + s.name;
       break;
     }
@@ -2381,7 +2387,7 @@ function renderAnimAt(clock) {
   if (stepI < 0) {
     const s = state.steps[state.steps.length - 1];
     const ex = state.nodes.get(s.exitNodeId);
-    marker = { x: ex.x, y: ex.y, color: "#5fd38a" };
+    marker = { x: ex.x, y: ex.y, stroke: "#5fd38a", scale: 1 };
     phase = "done"; info = "Day complete!";
   }
   activeStepIndex = stepI;
