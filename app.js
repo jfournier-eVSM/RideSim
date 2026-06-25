@@ -924,7 +924,9 @@ function renderLLPanel() {
     html += '<div class="ll-empty">' + msg + '</div>';
   } else {
     rows.slice(0, 8).forEach(r => {
-      const meta = [r.ll.price, t12FromISO(r.ll.start)].filter(Boolean).join(" · ");
+      const mins = llMinutesUntil(r.ll);
+      const when = t12FromISO(r.ll.start) + (mins != null ? " · " + (mins === 0 ? "now" : mins + " min") : "");
+      const meta = [r.ll.price, when].filter(Boolean).join(" · ");
       html += '<div class="ll-row"><span class="ll-nm">' + esc(r.name) + '</span>' +
         '<span class="ll-meta">' + meta + '</span>' +
         '<span class="ll-dist">' + (isFinite(r.dist) ? fmtFeet(r.dist * ftPerPx()) : "") + '</span></div>';
