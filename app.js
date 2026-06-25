@@ -61,11 +61,22 @@ const CAT_META = {
   shop:       { verb: "Shop at ", short: "Shop", phase: "SHOP", cls: "shop", anim: "🛍 Shopping at ", barVar: "var(--shop)", color: "#c08cff", wait: false },
   pin:        { verb: "Visit ",   short: "Stop", phase: "STOP", cls: "pin",  anim: "📍 Visiting ",    barVar: "var(--pin)",  color: "#ff8aa8", wait: false },
   restroom:   { verb: "Break at ", short: "Break", phase: "BREAK", cls: "restroom", anim: "🚻 Break at ", barVar: "var(--restroom)", color: "#6cb8e6", wait: false, icon: "🚻", iconNode: true },
-  other:      { verb: "Stop at ",  short: "Stop", phase: "STOP", cls: "other", anim: "⏱ At ", barVar: "var(--other)", color: "#9aa7bd", wait: false }
+  other:      { verb: "Stop at ",  short: "Stop", phase: "STOP", cls: "other", anim: "⏱ At ", barVar: "var(--other)", color: "#9aa7bd", wait: false },
+  transit:    { verb: "Take ",     short: "Transit", phase: "TRANSIT", cls: "transit", anim: "🚂 ", barVar: "var(--transit)", color: "#46c6b8", wait: false }
 };
+// A sequence entry "@transit:<lineId>" (optionally ">@<alightStopId>") schedules
+// an explicit transit ride. Board = nearest stop; alight = chosen, else auto.
+const TRANSIT_TOKEN = "@transit:";
+function isTransitToken(s) { return typeof s === "string" && s.indexOf(TRANSIT_TOKEN) === 0; }
+function parseTransitToken(s) {
+  const rest = s.slice(TRANSIT_TOKEN.length);
+  const gt = rest.indexOf(">");
+  return gt >= 0 ? { lineId: rest.slice(0, gt), alight: rest.slice(gt + 1) } : { lineId: rest, alight: null };
+}
+function transitTokenFor(lineId, alight) { return TRANSIT_TOKEN + lineId + (alight ? ">" + alight : ""); }
 function catMeta(c) { return CAT_META[c] || CAT_META.ride; }
 // Which categories are shown in the picker / on the map (toggled by the chips).
-const catFilter = { ride: true, restaurant: true, shop: true, pin: true, restroom: true, other: true };
+const catFilter = { ride: true, restaurant: true, shop: true, pin: true, restroom: true, other: true, transit: true };
 
 
 
@@ -441,13 +452,83 @@ function resolveStartNode(v) {
   return null;
 }
 
+// Entrance node of the next planned (non-transit) attraction after seqIndex.
+function nextDestinationNode(seqIndex) {
+  for (let j = seqIndex + 1; j < state.sequence.length; j++) {
+    const id = state.sequence[j];
+    if (isTransitToken(id)) continue;
+    const a = state.attractions.get(id);
+    if (!a) continue;
+    if (a.entranceNodeId && state.nodes.has(a.entranceNodeId)) return a.entranceNodeId;
+    const acc = (Array.isArray(a.accessNodeIds) ? a.accessNodeIds : []).filter(x => state.nodes.has(x));
+    if (acc.length) return acc[0];
+  }
+  return null;
+}
+
+// Build a travel-only step for an explicitly-scheduled transit ride: walk to the
+// nearest boarding stop, then ride the line to the alight stop (chosen, else the
+// stop nearest the next planned attraction).
+function buildTransitStep(token, curNode, curTime, seqIndex) {
+  const p = parseTransitToken(token);
+  const line = (state.transport || []).find(l => l.id === p.lineId);
+  if (!line) return null;
+  const stops = (line.stops || []).filter(id => state.nodes.has(id));
+  if (stops.length < 2) return null;
+  updateTransitWeights(curTime);
+  const boardPick = nearestAccess(curNode, stops);
+  const board = boardPick ? boardPick.id : stops[0];
+  let alight = (p.alight && stops.indexOf(p.alight) >= 0 && p.alight !== board) ? p.alight : null;
+  if (!alight) {
+    const others = stops.filter(s => s !== board);
+    const nextNode = nextDestinationNode(seqIndex);
+    const na = nextNode ? nearestAccess(nextNode, others) : null;
+    alight = na ? na.id : (others[others.length - 1] || stops[0]);
+  }
+  const tedge = (state.adj.get(board) || []).find(e => e.kind === "transit" && e.line === line.id && e.to === alight);
+  const rideMin = tedge ? tedge.rideMin : 0;
+  const boardMin = tedge ? (tedge.boardMin || 0) : 0;
+  const tpts = (tedge && tedge.points && tedge.points.length >= 2) ? tedge.points.map(pt => ({ x: pt.x, y: pt.y })) : [nodePt(board), nodePt(alight)];
+  // walk from where we are to the boarding stop
+  const wr = boardPick ? boardPick.route : dijkstra(curNode, board);
+  const wdec = wr ? decomposeRoute(wr) : { walkPx: 0, coords: [nodePt(curNode), nodePt(board)], travelLegs: [], transitRide: 0, transitBoard: 0 };
+  const walkToBoard = walkTimeMin(wdec.walkPx) + (wdec.transitRide || 0) + (wdec.transitBoard || 0);
+  // combined travel: walk-to-board legs + the transit ride
+  const travelLegs = (wdec.travelLegs || []).slice();
+  travelLegs.push({ kind: "transit", lineName: line.name || line.id, toStop: alight, rideMin: rideMin, boardMin: boardMin });
+  const coords = (wdec.coords && wdec.coords.length) ? wdec.coords.slice() : [nodePt(board)];
+  const walkLen = polylineLength(coords);
+  for (let k = (coords.length ? 1 : 0); k < tpts.length; k++) coords.push(tpts[k]);  // drop shared boarding vertex
+  const total = polylineLength(coords) || 1;
+  const transitSpans = [{ a: walkLen / total, b: 1, lineName: line.name || line.id, toStop: alight }];
+  const travel = walkToBoard + boardMin + rideMin;
+  const walkStart = curTime, walkEnd = walkStart + travel;
+  return {
+    attractionId: token, name: (line.name || line.id) + " → " + stopName(alight), category: "transit",
+    pathIds: wr ? wr.path : [curNode, board], routeCoords: coords, reachable: !!tedge,
+    distPx: wdec.walkPx, walk: travel, walkOnly: walkTimeMin(wdec.walkPx),
+    transitRide: rideMin + (wdec.transitRide || 0), transitBoard: boardMin + (wdec.transitBoard || 0),
+    transitLegs: [{ line: line.id, lineName: line.name || line.id, fromStop: board, toStop: alight, rideMin: rideMin, boardMin: boardMin }],
+    transitSpans: transitSpans, travelLegs: travelLegs, wait: 0, ride: 0,
+    walkStart: walkStart, walkEnd: walkEnd, waitStart: walkEnd, waitEnd: walkEnd, rideStart: walkEnd, rideEnd: walkEnd,
+    total: travel, entranceNodeId: board, exitNodeId: alight, line: line.id, alight: alight, stops: stops
+  };
+}
+
 function computeSequence() {
   const startMin = hmToMin(document.getElementById("startTime").value || "09:00");
   let curTime = startMin;
   let curNode = startNode();
   const steps = [];
 
-  for (const attrId of state.sequence) {
+  for (let si = 0; si < state.sequence.length; si++) {
+    const attrId = state.sequence[si];
+    // explicitly-scheduled transit ride (a travel-only step: walk to board, ride to alight)
+    if (isTransitToken(attrId)) {
+      const tstep = buildTransitStep(attrId, curNode, curTime, si);
+      if (tstep) { steps.push(tstep); curTime = tstep.rideEnd; curNode = tstep.exitNodeId; }
+      continue;
+    }
     const a = state.attractions.get(attrId);
     if (!a) continue;
     // transit boarding waits change through the day — weight the lines for the
@@ -1153,6 +1234,16 @@ function renderAttrList() {
     div.onmouseleave = () => { state.hoverPath = null; draw(); };
     el.appendChild(div);
   });
+  // transport lines — add as explicit "ride it" stops (board nearest, alight auto)
+  (state.transport || []).forEach(line => {
+    if (!catFilter.transit) return;
+    const div = document.createElement("div");
+    div.className = "attr-item";
+    div.innerHTML = '<span class="dot" style="background:' + TRANSIT_COLOR + '"></span>' +
+      '<span class="nm">🚂 ' + esc(line.name || line.id) + '</span><span class="meta">line</span>';
+    div.onclick = () => { state.sequence.push(transitTokenFor(line.id, null)); refresh(); };
+    el.appendChild(div);
+  });
 }
 function lastLocation() {
   // use the actual exit chosen during simulation (handles multi-access shops)
@@ -1178,6 +1269,33 @@ function renderSeq() {
     return;
   }
   state.sequence.forEach((id, i) => {
+    // explicitly-scheduled transit ride: line name + alight-stop dropdown
+    if (isTransitToken(id)) {
+      const p = parseTransitToken(id);
+      const line = (state.transport || []).find(l => l.id === p.lineId);
+      const step = state.steps[i] && state.steps[i].category === "transit" ? state.steps[i] : null;
+      const div = document.createElement("div");
+      div.className = "seq-item transit-item"; div.draggable = true; div.dataset.idx = i;
+      const lineName = line ? (line.name || line.id) : p.lineId;
+      const lineStops = line ? (line.stops || []).filter(s => state.nodes.has(s)) : [];
+      let sel = '<select class="dur alight" title="Get off at"><option value="">auto</option>';
+      lineStops.forEach(s => { sel += '<option value="' + esc(s) + '"' + (p.alight === s ? " selected" : "") + '>' + esc(stopName(s)) + '</option>'; });
+      sel += '</select>';
+      const dest = step ? stopName(step.alight) : (p.alight ? stopName(p.alight) : "auto");
+      div.innerHTML = '<span class="idx" title="Tap to change position">' + (i + 1) + '</span>' +
+        '<span class="nm">🚂 ' + esc(lineName) + ' <span class="meta">→ ' + esc(dest) + '</span></span>' +
+        sel + '<span class="rm" title="Remove">&#10005;</span>';
+      div.querySelector(".rm").onclick = (e) => { e.stopPropagation(); state.sequence.splice(i, 1); refresh(); };
+      div.querySelector(".idx").onclick = (e) => { e.stopPropagation(); moveSeqItem(i); };
+      const selEl = div.querySelector("select.alight");
+      selEl.draggable = false;
+      selEl.onpointerdown = (e) => e.stopPropagation();
+      selEl.onclick = (e) => e.stopPropagation();
+      selEl.onchange = () => { state.sequence[i] = transitTokenFor(p.lineId, selEl.value || null); refresh(); };
+      wireSeqDrag(div, i);
+      el.appendChild(div);
+      return;
+    }
     const a = state.attractions.get(id);
     const div = document.createElement("div");
     div.className = "seq-item"; div.draggable = true; div.dataset.idx = i;
@@ -1214,28 +1332,35 @@ function renderSeq() {
         refresh();
       };
     }
-    div.addEventListener("dragstart", () => { dragIdx = i; div.classList.add("dragging"); });
-    div.addEventListener("dragend", () => {
-      div.classList.remove("dragging");
-      document.querySelectorAll(".seq-item").forEach(x => x.classList.remove("drop-target"));
-    });
-    div.addEventListener("dragover", e => { e.preventDefault(); div.classList.add("drop-target"); });
-    div.addEventListener("dragleave", () => div.classList.remove("drop-target"));
-    div.addEventListener("drop", e => {
-      e.preventDefault();
-      if (dragIdx === null || dragIdx === i) return;
-      const m = state.sequence.splice(dragIdx, 1)[0];
-      state.sequence.splice(i, 0, m);
-      dragIdx = null; refresh();
-    });
+    wireSeqDrag(div, i);
     el.appendChild(div);
+  });
+}
+// Drag-to-reorder wiring shared by attraction and transit sequence items.
+function wireSeqDrag(div, i) {
+  div.addEventListener("dragstart", () => { dragIdx = i; div.classList.add("dragging"); });
+  div.addEventListener("dragend", () => {
+    div.classList.remove("dragging");
+    document.querySelectorAll(".seq-item").forEach(x => x.classList.remove("drop-target"));
+  });
+  div.addEventListener("dragover", e => { e.preventDefault(); div.classList.add("drop-target"); });
+  div.addEventListener("dragleave", () => div.classList.remove("drop-target"));
+  div.addEventListener("drop", e => {
+    e.preventDefault();
+    if (dragIdx === null || dragIdx === i) return;
+    const m = state.sequence.splice(dragIdx, 1)[0];
+    state.sequence.splice(i, 0, m);
+    dragIdx = null; refresh();
   });
 }
 // Prompt for a new 1-based position and move the item there (touch-friendly).
 function moveSeqItem(i) {
   const n = state.sequence.length;
-  const a = state.attractions.get(state.sequence[i]);
-  const ans = prompt('Move "' + (a ? a.name : state.sequence[i]) + '" to position (1–' + n + '):', String(i + 1));
+  const seqId = state.sequence[i];
+  const a = state.attractions.get(seqId);
+  let label = a ? a.name : seqId;
+  if (isTransitToken(seqId)) { const l = (state.transport || []).find(x => x.id === parseTransitToken(seqId).lineId); label = l ? (l.name || l.id) : seqId; }
+  const ans = prompt('Move "' + label + '" to position (1–' + n + '):', String(i + 1));
   if (ans == null) return;
   let pos = parseInt(ans, 10);
   if (isNaN(pos)) return;
@@ -1271,13 +1396,15 @@ function renderTimeline() {
         cur += d;
       } else {
         const d = walkTimeMin(t.px);
-        const lbl = (ti === lastWalkIdx) ? "Walk to " + s.name : "Walk";
+        // for a transit step the final walk is "to the boarding stop", not the line label
+        const destName = (s.category === "transit") ? stopName(s.entranceNodeId) : s.name;
+        const lbl = (ti === lastWalkIdx) ? "Walk to " + destName : "Walk";
         defs.push({ cls: "walk", phase: "walk", lbl: lbl, dur: d, a: cur, b: cur + d, distFt: stepFeet(t.px) });
         cur += d;
       }
     });
     if (s.category === "ride") defs.push({ cls: "wait", phase: "wait", lbl: "Wait for " + s.name, dur: s.wait, a: s.waitStart, b: s.waitEnd });
-    defs.push({ cls: meta.cls, phase: "ride", lbl: meta.verb + s.name, dur: s.ride, a: s.rideStart, b: s.rideEnd });
+    if (s.category !== "transit") defs.push({ cls: meta.cls, phase: "ride", lbl: meta.verb + s.name, dur: s.ride, a: s.rideStart, b: s.rideEnd });
     const rows = defs.map(d => {
       const wpct = Math.max(4, (d.dur / maxSpan) * 120);
       const dist = (typeof d.distFt === "number") ? ' &middot; ' + fmtFeet(d.distFt) : '';
@@ -1628,7 +1755,7 @@ function t12(min) {
   const ap = h < 12 ? "AM" : "PM"; let hh = h % 12; if (hh === 0) hh = 12;
   return hh + ":" + String(m).padStart(2, "0") + " " + ap;
 }
-const CAT_ICON = { ride: "🎢", restaurant: "🍽", shop: "🛍", pin: "📍", restroom: "🚻", other: "⏱" };
+const CAT_ICON = { ride: "🎢", restaurant: "🍽", shop: "🛍", pin: "📍", restroom: "🚻", other: "⏱", transit: "🚂" };
 // A clean, printable HTML day plan (own document so print/Save-PDF is native).
 function itineraryHtml(startMin, finish, totWalk, totWait, totRide, totFt, jsonStr) {
   const steps = state.steps.map((s, i) => {
