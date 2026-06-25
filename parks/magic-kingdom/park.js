@@ -759,6 +759,14 @@ SAMPLE.mapExtent = { "x": 3, "y": 0, "w": 2010, "h": 1744 };
 SAMPLE.feetPerPixel = 1.351351;
 // @RIDESIM:SCALE:END
 
+// Transport lines (railroad / ferries). Each line: { id, name, stops:[{node,
+// thpwId?, avgWait?}], segments:[{from, to, minutes, path:[{x,y}...]}] }.
+// Stops are graph nodes; segments are DIRECTED (from -> to). Written from the
+// Visio "transit_<Name>" layers by VisioExport.bas.
+// @RIDESIM:TRANSPORT:START
+SAMPLE.transport = [];
+// @RIDESIM:TRANSPORT:END
+
 // Wait times TSV — hourly points, code interpolates between them.
 SAMPLE.waitsTSV = (function () {
   const profile = {

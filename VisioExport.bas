@@ -19,14 +19,27 @@ Attribute VB_Name = "VisioExport"
 '         Restaurant / Shop / Pin / Restroom / Other
 '      "Other" is a generic timed stop (default 5-min dwell from DEFAULT_RIDE;
 '      override per shape with Prop.RideDuration).
+'         Station    - a transit boarding stop (a graph node). Carries the
+'                      boarding wait via Prop.ThPWID (live) and/or Prop.AvgWait.
+'                      Id comes from Prop.ID, else its text (e.g. "Main St").
 '   3. Wire it up with glued lines (center glue point to center glue point):
-'        - WALKWAY graph: lines between Node / Entrance / Exit shapes. Bend them
-'          however you like - bends are captured as polylines.
+'        - WALKWAY graph: lines between Node / Entrance / Exit / Station shapes.
+'          Bend them however you like - bends are captured as polylines.
 '        - ASSOCIATION: from each Attraction shape, draw one line to its
 '          Entrance node and one line to its Exit node. These tell the exporter
 '          which entrance/exit belong to the attraction and are NOT walkway
 '          edges. An Attraction must connect ONLY to Entrance/Exit shapes -
 '          never directly into the walkway graph.
+'        - TRANSPORT lines (railroad / ferries): put each line's tracks on a
+'          layer named "transit_<LineName>" (e.g. transit_Railroad). Draw one
+'          DIRECTED line per segment, glued FROM the departing Station TO the
+'          arriving Station (the line's begin end = "from", its end = "to"),
+'          carrying Prop.Duration = minutes for that hop. Bends are captured as
+'          the segment path. The engine chains segments in their direction:
+'          - two-way: draw a segment each way (A->B and B->A; their paths may
+'            differ - e.g. a ferry that loops out and backs in).
+'          - one-way loop: draw a cycle of segments (A->B, B->C, C->A).
+'          Boarding wait comes from the BOARD station's ThPWID/AvgWait.
 '   4. Run:  Tools > Macros > VisioExport.ExportRideSim   (or F5 in the editor).
 '   5. The macro writes the data into the park's data file (park.js), replacing
 '      the text between the // @RIDESIM:*:START / :END markers (the SAMPLE arrays).
@@ -148,6 +161,8 @@ Public Sub ExportRideSim()
     Set attractions = New Collection
     Dim usedAttr As Collection: Set usedAttr = New Collection
     Dim trackShapes As Collection: Set trackShapes = New Collection
+    Dim stationShapes As Collection: Set stationShapes = New Collection   ' transit Stop nodes
+    Dim transitSegs As Collection: Set transitSegs = New Collection       ' directed track lines on transit_* layers
 
     For Each shp In pg.Shapes
         Dim role As String: role = MasterRole(shp)
@@ -156,6 +171,7 @@ Public Sub ExportRideSim()
         If OnLayer(shp, TRACK_LAYER) Then mTrackIds.Add True, "k" & shp.id: trackShapes.Add shp
         Select Case role
             Case "Node":     nodeShapes.Add shp
+            Case "Station":  nodeShapes.Add shp: stationShapes.Add shp   ' a Stop is a graph node + a transit stop
             Case "Entrance": entShapes.Add shp
             Case "Exit":     exitShapes.Add shp
             Case "Attraction", "Restaurant", "Shop", "Pin", "Restroom", "Other"  ' all are attractions; category comes from the master
@@ -174,6 +190,9 @@ Public Sub ExportRideSim()
     Dim directOf As Collection: Set directOf = New Collection ' "k"&AttractionShapeID -> node ShapeID (non-ride single-node link)
     For Each shp In pg.Shapes
         If MasterRole(shp) = "" And shp.OneD And Not KeyExists(mTrackIds, "k" & shp.id) Then
+          If IsTransitLayer(shp) Then
+            transitSegs.Add shp        ' a directed transit segment, not a walkway edge
+          Else
             Dim bShp As Visio.Shape, eShp As Visio.Shape
             Set bShp = Nothing: Set eShp = Nothing
             GetEnds shp, bShp, eShp
@@ -221,6 +240,7 @@ Public Sub ExportRideSim()
                     Warn "Line skipped (both ends on same shape): " & shp.NameU
                 End If
             End If
+          End If
         End If
     Next
 
@@ -238,14 +258,21 @@ Public Sub ExportRideSim()
         Set shp = v
         Dim land As String: land = Sanitize(ShapeText(shp))
         Dim nid As String
-        If land = "start" Then            ' a node named "Start" -> id "start" (planner's origin)
+        Dim nrole As String: nrole = "Node"
+        If RoleOfShape(shp) = "Station" Then     ' a transit Stop: id from Prop.ID, else its text
+            nrole = "Station"
+            Dim sbase As String: sbase = Sanitize(PropStr(shp, "ID"))
+            If sbase = "" Then sbase = land
+            If sbase = "" Then sbase = "stop"
+            nid = UniqueId(sbase, usedNode)
+        ElseIf land = "start" Then        ' a node named "Start" -> id "start" (planner's origin)
             nid = UniqueId("start", usedNode)
         Else
             If land = "" Then land = "node"
             nid = UniqueId(land & NextCount(landCount, land), usedNode)
         End If
         Dim cc As Variant: cc = CenterPx(shp)
-        mNodeMap.Add Array(nid, cc(0), cc(1), "Node"), "k" & shp.id
+        mNodeMap.Add Array(nid, cc(0), cc(1), nrole), "k" & shp.id
         If nodeCount > 0 Then nodesJson = nodesJson & "," & vbCrLf
         nodesJson = nodesJson & NodeJson(nid, False, cc(0), cc(1), PropStr(shp, "Name"))
         nodeCount = nodeCount + 1
@@ -367,13 +394,18 @@ Public Sub ExportRideSim()
         attrCount = attrCount + 1
     Next
 
+    ' --- transit pass: transport lines from "transit_<Name>" layers ----------
+    Dim transitCount As Long: transitCount = 0
+    Dim transportJson As String: transportJson = BuildTransportJson(transitSegs, transitCount)
+
     ' --- assemble blocks -----------------------------------------------------
     Dim nodesBlock As String, connBlock As String, attrBlock As String
-    Dim mapBlock As String, scaleBlock As String
+    Dim mapBlock As String, scaleBlock As String, transportBlock As String
     nodesBlock = "SAMPLE.nodes = [" & vbCrLf & nodesJson & vbCrLf & "];"
     connBlock = "SAMPLE.connections = [" & vbCrLf & connJson & vbCrLf & "];"
     attrBlock = "SAMPLE.attractions = [" & vbCrLf & attrJson & vbCrLf & "];"
     mapBlock = "SAMPLE.mapExtent = " & MapExtentJson(pg) & ";"
+    transportBlock = "SAMPLE.transport = [" & vbCrLf & transportJson & vbCrLf & "];"
 
     Dim ftPerPx As Double: ftPerPx = ComputeScale(pg)
     If ftPerPx > 0 Then
@@ -384,7 +416,8 @@ Public Sub ExportRideSim()
 
     Dim outText As String   ' plain-text fallback (same blocks, copy/paste-able)
     outText = nodesBlock & vbCrLf & vbCrLf & connBlock & vbCrLf & vbCrLf & _
-              attrBlock & vbCrLf & vbCrLf & mapBlock & vbCrLf & vbCrLf & scaleBlock & vbCrLf
+              attrBlock & vbCrLf & vbCrLf & mapBlock & vbCrLf & vbCrLf & scaleBlock & vbCrLf & vbCrLf & _
+              transportBlock & vbCrLf
     Debug.Print outText
 
     ' --- emit: patch the park's park.js in place, else write the .txt --------
@@ -392,11 +425,11 @@ Public Sub ExportRideSim()
     Dim msg As String, htmlP As String, didPatch As Boolean
     htmlP = HtmlPath()
     If htmlP <> "" Then
-        If Dir$(htmlP) <> "" Then didPatch = PatchHtml(htmlP, nodesBlock, connBlock, attrBlock, mapBlock, scaleBlock)
+        If Dir$(htmlP) <> "" Then didPatch = PatchHtml(htmlP, nodesBlock, connBlock, attrBlock, mapBlock, scaleBlock, transportBlock)
     End If
     If didPatch Then
         msg = "Wrote " & nodeCount & " nodes, " & connCount & " connections, " & _
-              attrCount & " attractions into:" & vbCrLf & htmlP & vbCrLf & _
+              attrCount & " attractions" & IIf(transitCount > 0, ", " & transitCount & " transport line(s)", "") & " into:" & vbCrLf & htmlP & vbCrLf & _
               "Refresh the page in your browser."
     Else
         Dim savedTo As String: savedTo = WriteOut(outText)
@@ -450,7 +483,8 @@ End Function
 ' Replace the text between each marker pair with its block. Returns False (and
 ' leaves the file untouched) if any marker is missing.
 Private Function PatchHtml(path As String, nodesBlock As String, connBlock As String, _
-                           attrBlock As String, mapBlock As String, scaleBlock As String) As Boolean
+                           attrBlock As String, mapBlock As String, scaleBlock As String, _
+                           transportBlock As String) As Boolean
     On Error GoTo fail
     Dim s As String: s = ReadTextUtf8(path)
     Dim nl As String: nl = IIf(InStr(s, vbCrLf) > 0, vbCrLf, vbLf)
@@ -460,6 +494,10 @@ Private Function PatchHtml(path As String, nodesBlock As String, connBlock As St
     s = PatchSection(s, "@RIDESIM:ATTR:START", "@RIDESIM:ATTR:END", Reflow(attrBlock, nl), nl, ok)
     s = PatchSection(s, "@RIDESIM:MAP:START", "@RIDESIM:MAP:END", Reflow(mapBlock, nl), nl, ok)
     s = PatchSection(s, "@RIDESIM:SCALE:START", "@RIDESIM:SCALE:END", Reflow(scaleBlock, nl), nl, ok)
+    ' transport markers are newer; patch only if present so older park.js still works
+    If InStr(s, "@RIDESIM:TRANSPORT:START") > 0 Then
+        s = PatchSection(s, "@RIDESIM:TRANSPORT:START", "@RIDESIM:TRANSPORT:END", Reflow(transportBlock, nl), nl, ok)
+    End If
     If ok Then WriteTextUtf8NoBom path, s   ' only touch the file if every marker matched
     PatchHtml = ok
     Exit Function
@@ -524,6 +562,7 @@ Private Function MasterRole(shp As Visio.Shape) As String
         Case nm = "pin", nu = "pin", nm = "pins", nu = "pins": MasterRole = "Pin"
         Case nm = "restroom", nu = "restroom", nm = "restrooms", nu = "restrooms": MasterRole = "Restroom"
         Case nm = "other", nu = "other", nm = "others", nu = "others": MasterRole = "Other"
+        Case nm = "station", nu = "station", nm = "stations", nu = "stations", nm = "stop", nu = "stop": MasterRole = "Station"
         Case nm = "entrance", nu = "entrance":     MasterRole = "Entrance"
         Case nm = "exit", nu = "exit":             MasterRole = "Exit"
         Case nm = "node", nu = "node":             MasterRole = "Node"
@@ -599,6 +638,101 @@ Private Function OnLayer(shp As Visio.Shape, layerName As String) As Boolean
     For i = 1 To shp.LayerCount
         If LCase$(shp.Layer(i).Name) = LCase$(layerName) Then OnLayer = True: Exit Function
     Next i
+End Function
+
+' Transport lines live on layers named "transit_<LineName>" (e.g. transit_Railroad).
+Private Const TRANSIT_PREFIX As String = "transit_"
+Private Function IsTransitLayer(shp As Visio.Shape) As Boolean
+    On Error Resume Next
+    Dim i As Long
+    For i = 1 To shp.LayerCount
+        If LCase$(Left$(shp.Layer(i).Name, Len(TRANSIT_PREFIX))) = TRANSIT_PREFIX Then IsTransitLayer = True: Exit Function
+    Next i
+End Function
+' The line name = the layer name after the "transit_" prefix.
+Private Function TransitLineOf(shp As Visio.Shape) As String
+    On Error Resume Next
+    Dim i As Long, nm As String
+    For i = 1 To shp.LayerCount
+        nm = shp.Layer(i).Name
+        If LCase$(Left$(nm, Len(TRANSIT_PREFIX))) = TRANSIT_PREFIX Then TransitLineOf = Mid$(nm, Len(TRANSIT_PREFIX) + 1): Exit Function
+    Next i
+End Function
+
+' Build SAMPLE.transport JSON from the directed transit segments. Segments are
+' grouped by their transit_<Name> layer; each segment becomes a directed
+' {from, to, minutes, points}; stops are derived from the segment endpoints,
+' carrying any ThPWID / AvgWait from the Station shape (the boarding wait).
+Private Function BuildTransportJson(segs As Collection, ByRef lineCount As Long) As String
+    lineCount = 0
+    If segs Is Nothing Then Exit Function
+    If segs.Count = 0 Then Exit Function
+    Dim names As Collection: Set names = New Collection   ' distinct line names, in order
+    Dim v As Variant, shp As Visio.Shape, ln As String
+    For Each v In segs
+        Set shp = v: ln = TransitLineOf(shp)
+        If ln <> "" And Not KeyExists(names, ln) Then names.Add ln, ln
+    Next
+    Dim out As String: out = ""
+    Dim nameV As Variant
+    For Each nameV In names
+        ln = CStr(nameV)
+        Dim stopIds As Collection: Set stopIds = New Collection      ' nodeId -> True (dedup)
+        Dim stopList As Collection: Set stopList = New Collection     ' Array(nodeId, stationShape)
+        Dim segJson As String: segJson = "": Dim segFirst As Boolean: segFirst = True
+        For Each v In segs
+            Set shp = v
+            If TransitLineOf(shp) = ln Then
+                Dim b As Visio.Shape, e As Visio.Shape
+                Set b = Nothing: Set e = Nothing: GetEnds shp, b, e
+                If b Is Nothing Or e Is Nothing Then
+                    Warn "Transit segment on '" & ln & "' isn't glued at both ends: " & shp.NameU
+                Else
+                    Dim fromId As String, toId As String
+                    fromId = FinalId(b): toId = FinalId(e)
+                    If fromId = "" Or toId = "" Or fromId = toId Then
+                        Warn "Transit segment on '" & ln & "' could not resolve two distinct Stops: " & shp.NameU
+                    Else
+                        Dim mins As Double: mins = RideDur(shp)
+                        Dim pts As String: pts = ConnectorPointsJson(shp, fromId)
+                        If Not segFirst Then segJson = segJson & "," & vbCrLf
+                        segJson = segJson & "    { ""from"": """ & fromId & """, ""to"": """ & toId & _
+                                  """, ""minutes"": " & JNum(mins) & ", ""path"": [" & pts & "] }"
+                        segFirst = False
+                        Dim kb As Visio.Shape, ke As Visio.Shape
+                        Set kb = ClimbKnown(b): Set ke = ClimbKnown(e)
+                        If Not KeyExists(stopIds, fromId) Then stopIds.Add True, fromId: stopList.Add Array(fromId, kb)
+                        If Not KeyExists(stopIds, toId) Then stopIds.Add True, toId: stopList.Add Array(toId, ke)
+                    End If
+                End If
+            End If
+        Next
+        If Not segFirst Then            ' line produced at least one usable segment
+            Dim stopsJson As String: stopsJson = "": Dim sFirst As Boolean: sFirst = True
+            Dim sv As Variant
+            For Each sv In stopList
+                Dim arr As Variant: arr = sv
+                Dim sid As String: sid = arr(0)
+                Dim sShp As Visio.Shape: Set sShp = arr(1)
+                Dim obj As String: obj = "{ ""node"": """ & sid & """"
+                If Not sShp Is Nothing Then
+                    Dim tw As String: tw = ThpwIdOf(sShp)
+                    If Trim$(tw) <> "" Then obj = obj & ", ""thpwId"": """ & JStr(Trim$(tw)) & """"
+                    Dim aw As Double: aw = AvgWaitOf(sShp)
+                    If aw >= 0 Then obj = obj & ", ""avgWait"": " & JNum(aw)
+                End If
+                obj = obj & " }"
+                If Not sFirst Then stopsJson = stopsJson & ", "
+                stopsJson = stopsJson & obj: sFirst = False
+            Next
+            If lineCount > 0 Then out = out & "," & vbCrLf
+            out = out & "  { ""id"": """ & Slugify(ln) & """, ""name"": """ & JStr(ln) & """," & vbCrLf & _
+                  "    ""stops"": [" & stopsJson & "]," & vbCrLf & _
+                  "    ""segments"": [" & vbCrLf & segJson & vbCrLf & "    ] }"
+            lineCount = lineCount + 1
+        End If
+    Next
+    BuildTransportJson = out
 End Function
 
 ' "ScaleStart" / "ScaleEnd" / "" - by master name or shape name.

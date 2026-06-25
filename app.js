@@ -206,50 +206,64 @@ function stopName(id) {
   return String(id || "").replace(/_(in|out)$/, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
-// Concatenate a line's per-segment polylines for stops i..j (reverse for j->i).
-function joinSegs(pathArr, i, j, reverse) {
-  if (!Array.isArray(pathArr)) return null;
-  let order = [];
-  for (let k = i; k < j; k++) order.push(pathArr[k]);
-  if (reverse) order = order.reverse().map(s => (Array.isArray(s) ? s.slice().reverse() : s));
-  const out = [];
-  order.forEach((seg, idx) => {
-    if (!Array.isArray(seg)) return;
-    let s = seg.map(p => ({ x: +p.x, y: +p.y }));
-    if (idx > 0) s = s.slice(1);          // drop the shared stop vertex
-    out.push.apply(out, s);
-  });
-  return out.length >= 2 ? out : null;
+// Normalize a line's stops to [{node, thpwId?, avgWait?}], keeping only real nodes.
+function lineStops(line) {
+  return (line.stops || [])
+    .map(s => (typeof s === "string" ? { node: s } : s))
+    .filter(s => s && state.nodes.has(s.node));
+}
+// Join two polylines, dropping the duplicated shared vertex.
+function concatPath(a, b) {
+  if (!a || !a.length) return (b || []).slice();
+  if (!b || !b.length) return a.slice();
+  return a.concat(b.slice(1));
 }
 
-// For each line, add a directed transit edge for every reachable stop pair.
-// dist/boardMin are set later by updateTransitWeights (they depend on the time
-// of day + live waits); rideMin and geometry are fixed here.
+// Build transit edges from a line's DIRECTED segments. Each drawn segment is
+// {from, to, minutes, path}; the engine chains segments in their direction so a
+// guest can board at any stop and ride to any forward-reachable stop. This
+// handles two-way (a segment each way), one-way loops (a cycle of segments),
+// and asymmetric paths (out one way, back another) uniformly. Boarding wait
+// comes from the BOARD stop's wait source (its glued station attraction).
+// dist/boardMin are filled in later by updateTransitWeights.
 function buildTransitEdges(lines) {
-  lines.forEach(line => {
-    const stops = (line.stops || []).filter(id => state.nodes.has(id));
-    if (stops.length < 2) { if ((line.stops || []).length) console.warn("Transport '" + (line.id || line.name) + "': stops missing from graph, skipped."); return; }
-    const n = stops.length;
-    const segs = Array.isArray(line.segMinutes)
-      ? line.segMinutes
-      : stops.slice(1).map(() => (typeof line.segMinutes === "number" ? line.segMinutes : 5));
-    const cum = [0];
-    for (let k = 0; k < n - 1; k++) cum.push(cum[k] + (+segs[k] || 0));
-    const add = (fromIdx, toIdx) => {
-      const rideMin = Math.abs(cum[toIdx] - cum[fromIdx]);
-      const reverse = toIdx < fromIdx;
-      const lo = Math.min(fromIdx, toIdx), hi = Math.max(fromIdx, toIdx);
-      const points = joinSegs(line.path, lo, hi, reverse);
-      state.adj.get(stops[fromIdx]).push({
-        to: stops[toIdx], kind: "transit", line: line.id, lineName: line.name || line.id,
-        fromStop: stops[fromIdx], toStop: stops[toIdx], rideMin: rideMin, points: points,
-        thpwId: line.thpwId, avgWait: line.avgWait, boardMin: 0, dist: timeEquivPx(rideMin)
-      });
-    };
-    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-      if (i === j) continue;
-      if (j > i || line.bidirectional !== false) add(i, j);   // forward always; backward unless one-way
-    }
+  (lines || []).forEach(line => {
+    const stops = lineStops(line);
+    if (stops.length < 2) { if ((line.stops || []).length) console.warn("Transport '" + (line.id || line.name) + "': fewer than 2 stops on the graph, skipped."); return; }
+    const wait = {};
+    stops.forEach(s => { wait[s.node] = { thpwId: s.thpwId, avgWait: s.avgWait }; });
+    // directed adjacency among stops, from the drawn segments
+    const segAdj = new Map();
+    (line.segments || []).forEach(seg => {
+      if (!seg || !state.nodes.has(seg.from) || !state.nodes.has(seg.to)) return;
+      const path = (Array.isArray(seg.path) && seg.path.length >= 2)
+        ? seg.path.map(p => ({ x: +p.x, y: +p.y })) : [nodePt(seg.from), nodePt(seg.to)];
+      if (!segAdj.has(seg.from)) segAdj.set(seg.from, []);
+      segAdj.get(seg.from).push({ to: seg.to, minutes: +seg.minutes || 0, path: path });
+    });
+    // from each origin, BFS forward to every reachable stop, accumulating
+    // minutes + concatenated geometry; add one transit edge per (origin, dest)
+    stops.forEach(origin => {
+      const start = origin.node;
+      const seen = new Set([start]);
+      const queue = [{ node: start, min: 0, path: null }];
+      while (queue.length) {
+        const cur = queue.shift();
+        for (const e of (segAdj.get(cur.node) || [])) {
+          if (seen.has(e.to)) continue;
+          seen.add(e.to);
+          const min = cur.min + e.minutes;
+          const path = concatPath(cur.path, e.path);
+          state.adj.get(start).push({
+            to: e.to, kind: "transit", line: line.id, lineName: line.name || line.id,
+            fromStop: start, toStop: e.to, rideMin: min, points: (path && path.length >= 2) ? path : null,
+            thpwId: wait[start] && wait[start].thpwId, avgWait: wait[start] && wait[start].avgWait,
+            boardMin: 0, dist: timeEquivPx(min)
+          });
+          queue.push({ node: e.to, min: min, path: path });
+        }
+      }
+    });
   });
 }
 
@@ -473,7 +487,7 @@ function buildTransitStep(token, curNode, curTime, seqIndex) {
   const p = parseTransitToken(token);
   const line = (state.transport || []).find(l => l.id === p.lineId);
   if (!line) return null;
-  const stops = (line.stops || []).filter(id => state.nodes.has(id));
+  const stops = lineStops(line).map(s => s.node);
   if (stops.length < 2) return null;
   updateTransitWeights(curTime);
   const boardPick = nearestAccess(curNode, stops);
@@ -781,14 +795,13 @@ function draw(marker) {
 
   // transport lines (rail / ferry) — drawn as part of the map, teal, with stop dots
   (state.transport || []).forEach(line => {
-    const stops = (line.stops || []).filter(id => state.nodes.has(id));
-    for (let k = 0; k < stops.length - 1; k++) {
-      const seg = (Array.isArray(line.path) && Array.isArray(line.path[k]) && line.path[k].length >= 2)
-        ? line.path[k] : [nodePt(stops[k]), nodePt(stops[k + 1])];
-      drawPath(seg, "rgba(70,198,184,0.55)", 2.2, false);
-    }
-    stops.forEach(id => {
-      const p = nodePt(id);
+    (line.segments || []).forEach(seg => {
+      if (!seg || !state.nodes.has(seg.from) || !state.nodes.has(seg.to)) return;
+      const path = (Array.isArray(seg.path) && seg.path.length >= 2) ? seg.path : [nodePt(seg.from), nodePt(seg.to)];
+      drawPath(path, "rgba(70,198,184,0.55)", 2.2, false);
+    });
+    lineStops(line).forEach(s => {
+      const p = nodePt(s.node);
       ctx.beginPath(); ctx.arc(tx(p.x), ty(p.y), 4, 0, 7);
       ctx.fillStyle = TRANSIT_COLOR; ctx.fill();
       ctx.lineWidth = 1.5; ctx.strokeStyle = "#0f1420"; ctx.stroke();
@@ -1277,9 +1290,9 @@ function renderSeq() {
       const div = document.createElement("div");
       div.className = "seq-item transit-item"; div.draggable = true; div.dataset.idx = i;
       const lineName = line ? (line.name || line.id) : p.lineId;
-      const lineStops = line ? (line.stops || []).filter(s => state.nodes.has(s)) : [];
+      const stopNodes = line ? lineStops(line).map(s => s.node) : [];
       let sel = '<select class="dur alight" title="Get off at"><option value="">auto</option>';
-      lineStops.forEach(s => { sel += '<option value="' + esc(s) + '"' + (p.alight === s ? " selected" : "") + '>' + esc(stopName(s)) + '</option>'; });
+      stopNodes.forEach(s => { sel += '<option value="' + esc(s) + '"' + (p.alight === s ? " selected" : "") + '>' + esc(stopName(s)) + '</option>'; });
       sel += '</select>';
       const dest = step ? stopName(step.alight) : (p.alight ? stopName(p.alight) : "auto");
       div.innerHTML = '<span class="idx" title="Tap to change position">' + (i + 1) + '</span>' +
