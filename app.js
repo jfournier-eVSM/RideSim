@@ -29,10 +29,16 @@ function applyParkMeta() {
 // but a duration (like a ride) — it just gets its own color/category.
 // Categories: ride (queue + entrance/exit), restaurant/shop/pin (no queue,
 // hook to a single node). Anything unrecognized is treated as a ride.
-const CATEGORIES = ["ride", "restaurant", "shop", "pin", "restroom"];
+const CATEGORIES = ["ride", "restaurant", "shop", "pin", "restroom", "other"];
 function attrCat(a) {
   const c = a && a.category;
   return CATEGORIES.indexOf(c) >= 0 ? c : "ride";
+}
+// Dwell minutes for a non-ride stop. "other" defaults to 5 when unset; the user
+// can override it (including to 0). The other categories default to 0.
+function attrDuration(a) {
+  if (a && typeof a.rideDuration === "number") return a.rideDuration;
+  return attrCat(a) === "other" ? 5 : 0;
 }
 // Closed = not open at the park today; shown as a flat gray circle.
 function attrClosed(a) { return !!(a && a.closed); }
@@ -44,7 +50,8 @@ const ATTR_COLORS = {
   restaurant: { off: "#57d9a3", on: "#2bb487" },
   shop:       { off: "#c08cff", on: "#9b6bff" },
   pin:        { off: "#ff8aa8", on: "#ff5d86" },
-  restroom:   { off: "#6cb8e6", on: "#3a93d6" }
+  restroom:   { off: "#6cb8e6", on: "#3a93d6" },
+  other:      { off: "#9aa7bd", on: "#6d7d99" }
 };
 // Per-category labels/markers used by the timeline, itinerary and animation.
 const CAT_META = {
@@ -52,11 +59,12 @@ const CAT_META = {
   restaurant: { verb: "Eat at ",  short: "Eat",  phase: "DINE", cls: "dine", anim: "🍽 Eating at ",   barVar: "var(--rest)", color: "#57d9a3", wait: false },
   shop:       { verb: "Shop at ", short: "Shop", phase: "SHOP", cls: "shop", anim: "🛍 Shopping at ", barVar: "var(--shop)", color: "#c08cff", wait: false },
   pin:        { verb: "Visit ",   short: "Stop", phase: "STOP", cls: "pin",  anim: "📍 Visiting ",    barVar: "var(--pin)",  color: "#ff8aa8", wait: false },
-  restroom:   { verb: "Break at ", short: "Break", phase: "BREAK", cls: "restroom", anim: "🚻 Break at ", barVar: "var(--restroom)", color: "#6cb8e6", wait: false, icon: "🚻", iconNode: true }
+  restroom:   { verb: "Break at ", short: "Break", phase: "BREAK", cls: "restroom", anim: "🚻 Break at ", barVar: "var(--restroom)", color: "#6cb8e6", wait: false, icon: "🚻", iconNode: true },
+  other:      { verb: "Stop at ",  short: "Stop", phase: "STOP", cls: "other", anim: "⏱ At ", barVar: "var(--other)", color: "#9aa7bd", wait: false }
 };
 function catMeta(c) { return CAT_META[c] || CAT_META.ride; }
 // Which categories are shown in the picker / on the map (toggled by the chips).
-const catFilter = { ride: true, restaurant: true, shop: true, pin: true, restroom: true };
+const catFilter = { ride: true, restaurant: true, shop: true, pin: true, restroom: true, other: true };
 
 
 
@@ -339,7 +347,7 @@ function computeSequence() {
     // live wait > configured average > time-of-day; non-rides are 0
     const wait = waitFor(a, walkEnd);
     const waitStart = walkEnd, waitEnd = waitStart + wait;
-    const ride = a.rideDuration || 0;
+    const ride = attrDuration(a);
     const rideStart = waitEnd, rideEnd = rideStart + ride;
 
     steps.push({
@@ -981,7 +989,7 @@ function renderAttrList() {
     const dotColor = attrClosed(a) ? CLOSED_COLOR : ATTR_COLORS[attrCat(a)].off;
     div.innerHTML = '<span class="dot" style="background:' + dotColor + '"></span><span class="nm">' + esc(a.name) +
       (attrClosed(a) ? ' <span class="meta">(closed)</span>' : '') +
-      '</span><span class="meta">' + (a.rideDuration || 0) + 'm</span>';
+      '</span><span class="meta">' + attrDuration(a) + 'm</span>';
     div.onclick = () => { state.sequence.push(a.id); refresh(); };
     div.onmouseenter = () => {
       const r = dijkstra(lastLocation(), a.entranceNodeId);
@@ -1019,10 +1027,10 @@ function renderSeq() {
     const div = document.createElement("div");
     div.className = "seq-item"; div.draggable = true; div.dataset.idx = i;
     const cat = a ? attrCat(a) : "ride";
-    // editable field: dwell time for shops/restaurants/restrooms, wait for rides
+    // editable field: dwell time for shops/restaurants/restrooms/other, wait for rides
     let fieldHtml = "";
-    if (a && (cat === "restaurant" || cat === "shop" || cat === "restroom")) {
-      fieldHtml = '<input class="dur" data-kind="dur" type="number" min="0" step="5" inputmode="numeric" value="' + (a.rideDuration || 0) + '" title="Minutes you\'ll spend here"><span class="durunit">min</span>';
+    if (a && (cat === "restaurant" || cat === "shop" || cat === "restroom" || cat === "other")) {
+      fieldHtml = '<input class="dur" data-kind="dur" type="number" min="0" step="5" inputmode="numeric" value="' + attrDuration(a) + '" title="Minutes you\'ll spend here"><span class="durunit">min</span>';
     } else if (a && cat === "ride") {
       const step = (state.steps[i] && state.steps[i].attractionId === id) ? state.steps[i] : null;
       const w = (typeof a.waitOverride === "number") ? a.waitOverride : (step ? Math.round(step.wait) : 0);
@@ -1440,7 +1448,7 @@ function t12(min) {
   const ap = h < 12 ? "AM" : "PM"; let hh = h % 12; if (hh === 0) hh = 12;
   return hh + ":" + String(m).padStart(2, "0") + " " + ap;
 }
-const CAT_ICON = { ride: "🎢", restaurant: "🍽", shop: "🛍", pin: "📍", restroom: "🚻" };
+const CAT_ICON = { ride: "🎢", restaurant: "🍽", shop: "🛍", pin: "📍", restroom: "🚻", other: "⏱" };
 // A clean, printable HTML day plan (own document so print/Save-PDF is native).
 function itineraryHtml(startMin, finish, totWalk, totWait, totRide, totFt, jsonStr) {
   const steps = state.steps.map((s, i) => {
@@ -1506,7 +1514,7 @@ function download(name, content, type) {
 const HINTS = {
   nodes: 'Array of { id, name?, isAttraction, x, y } — node coordinates in pixels.',
   connections: 'Array of { from, to:[...] }, or { from, to:"id", points:[{x,y}...] } for a polyline edge (length follows the polyline).',
-  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration, category?, closed?, hoverText?, avgWait?, thpwId?, track?, audio? }. category ride|restaurant|shop|pin|restroom (default ride); only rides queue. thpwId = ThemeParks.wiki GUID matching live standby waits + Lightning Lane (else matched by name). avgWait = typical wait (min) used for timing when live is off. closed true = gray. hoverText shows on map hover. track = [{x,y}...] ride path; marker animates along it. audio = URL/file looped while the avatar is at this stop during animation.',
+  attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration, category?, closed?, hoverText?, avgWait?, thpwId?, track?, audio? }. category ride|restaurant|shop|pin|restroom|other (default ride); only rides queue. "other" is a generic timed stop (default 5-min dwell, editable). thpwId = ThemeParks.wiki GUID matching live standby waits + Lightning Lane (else matched by name). avgWait = typical wait (min) used for timing when live is off. closed true = gray. hoverText shows on map hover. track = [{x,y}...] ride path; marker animates along it. audio = URL/file looped while the avatar is at this stop during animation.',
   waits: 'Tab-delimited: attraction_id  time_of_day(HH:MM)  avg_wait_minutes. Linearly interpolated.'
 };
 function openModal() {
