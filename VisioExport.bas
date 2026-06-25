@@ -9,11 +9,16 @@ Attribute VB_Name = "VisioExport"
 ' HOW TO USE
 '   1. Alt+F11 in Visio -> File > Import File... > pick VisioExport.bas
 '      (or paste this whole module into a new Module).
-'   2. Build your drawing with the four masters named exactly:
+'   2. Build your drawing with these core masters named exactly:
 '         Node       - a path junction (isAttraction = false)
 '         Entrance   - an attraction entrance node (isAttraction = true)
 '         Exit       - an attraction exit node     (isAttraction = true)
 '         Attraction - the attraction label/marker (carries name + ride length)
+'      Plus optional attraction-category masters - same as Attraction but tagged
+'      with that category (no Entrance/Exit needed; link to one or more Nodes):
+'         Restaurant / Shop / Pin / Restroom / Other
+'      "Other" is a generic timed stop (default 5-min dwell from DEFAULT_RIDE;
+'      override per shape with Prop.RideDuration).
 '   3. Wire it up with glued lines (center glue point to center glue point):
 '        - WALKWAY graph: lines between Node / Entrance / Exit shapes. Bend them
 '          however you like - bends are captured as polylines.
@@ -153,7 +158,7 @@ Public Sub ExportRideSim()
             Case "Node":     nodeShapes.Add shp
             Case "Entrance": entShapes.Add shp
             Case "Exit":     exitShapes.Add shp
-            Case "Attraction", "Restaurant", "Shop", "Pin", "Restroom"  ' all are attractions; category comes from the master
+            Case "Attraction", "Restaurant", "Shop", "Pin", "Restroom", "Other"  ' all are attractions; category comes from the master
                 mAttrMap.Add AttrIdFor(shp, usedAttr), "k" & shp.id
                 attractions.Add shp
         End Select
@@ -518,6 +523,7 @@ Private Function MasterRole(shp As Visio.Shape) As String
         Case nm = "shop", nu = "shop", nm = "shops", nu = "shops": MasterRole = "Shop"
         Case nm = "pin", nu = "pin", nm = "pins", nu = "pins": MasterRole = "Pin"
         Case nm = "restroom", nu = "restroom", nm = "restrooms", nu = "restrooms": MasterRole = "Restroom"
+        Case nm = "other", nu = "other", nm = "others", nu = "others": MasterRole = "Other"
         Case nm = "entrance", nu = "entrance":     MasterRole = "Entrance"
         Case nm = "exit", nu = "exit":             MasterRole = "Exit"
         Case nm = "node", nu = "node":             MasterRole = "Node"
@@ -802,6 +808,7 @@ Private Function CategoryOf(shp As Visio.Shape) As String
             Case "Shop":       CategoryOf = "shop"
             Case "Pin":        CategoryOf = "pin"
             Case "Restroom":   CategoryOf = "restroom"
+            Case "Other":      CategoryOf = "other"
         End Select
     End If
 End Function
