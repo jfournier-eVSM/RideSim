@@ -127,7 +127,7 @@ function buildRoute(ids) {
   return out;
 }
 
-function buildFromData(nodes, connections, attractions, waitsTSV) {
+function buildFromData(nodes, connections, attractions, waitsTSV, transport) {
   state.nodes = new Map();
   nodes.forEach(n => state.nodes.set(n.id, n));
 
@@ -146,8 +146,8 @@ function buildFromData(nodes, connections, attractions, waitsTSV) {
     seen.add(key);
     const pts = (points && points.length >= 2) ? points.map(p => ({ x: +p.x, y: +p.y })) : null;
     const d = pts ? polylineLength(pts) : dist(na, nb);
-    state.adj.get(a).push({ to: b, dist: d, points: pts });
-    state.adj.get(b).push({ to: a, dist: d, points: pts ? pts.slice().reverse() : null });
+    state.adj.get(a).push({ to: b, dist: d, points: pts, kind: "walk" });
+    state.adj.get(b).push({ to: a, dist: d, points: pts ? pts.slice().reverse() : null, kind: "walk" });
   }
   connections.forEach(c => {
     const tos = Array.isArray(c.to) ? c.to : (c.to != null ? [c.to] : []);
@@ -155,6 +155,12 @@ function buildFromData(nodes, connections, attractions, waitsTSV) {
     const pts = (Array.isArray(c.points) && tos.length === 1) ? c.points : null;
     tos.forEach(t => addEdge(c.from, t, pts));
   });
+
+  // transport lines (railroad, ferries): inject directed "transit" edges between
+  // every pair of stops on a line. A single ride = one edge, so its boarding
+  // wait is charged exactly once (no double-count on multi-stop trips).
+  state.transport = Array.isArray(transport) ? transport : [];
+  buildTransitEdges(state.transport);
 
   state.attractions = new Map();
   attractions.forEach(a => state.attractions.set(a.id, a));
@@ -176,9 +182,107 @@ function buildFromData(nodes, connections, attractions, waitsTSV) {
   populateStartSelect();   // refresh the "From" location options for the new data
 }
 
+/* ---------- Transport lines (railroad / ferries) ------------------------ */
+// Minutes -> equivalent walk pixels, so Dijkstra (which sums pixels) is really
+// minimizing time: walkTimeMin(timeEquivPx(m)) === m.
+function timeEquivPx(min) { return (min * WALK_FT_PER_MIN) / ftPerPx(); }
+
+// Concatenate a line's per-segment polylines for stops i..j (reverse for j->i).
+function joinSegs(pathArr, i, j, reverse) {
+  if (!Array.isArray(pathArr)) return null;
+  let order = [];
+  for (let k = i; k < j; k++) order.push(pathArr[k]);
+  if (reverse) order = order.reverse().map(s => (Array.isArray(s) ? s.slice().reverse() : s));
+  const out = [];
+  order.forEach((seg, idx) => {
+    if (!Array.isArray(seg)) return;
+    let s = seg.map(p => ({ x: +p.x, y: +p.y }));
+    if (idx > 0) s = s.slice(1);          // drop the shared stop vertex
+    out.push.apply(out, s);
+  });
+  return out.length >= 2 ? out : null;
+}
+
+// For each line, add a directed transit edge for every reachable stop pair.
+// dist/boardMin are set later by updateTransitWeights (they depend on the time
+// of day + live waits); rideMin and geometry are fixed here.
+function buildTransitEdges(lines) {
+  lines.forEach(line => {
+    const stops = (line.stops || []).filter(id => state.nodes.has(id));
+    if (stops.length < 2) { if ((line.stops || []).length) console.warn("Transport '" + (line.id || line.name) + "': stops missing from graph, skipped."); return; }
+    const n = stops.length;
+    const segs = Array.isArray(line.segMinutes)
+      ? line.segMinutes
+      : stops.slice(1).map(() => (typeof line.segMinutes === "number" ? line.segMinutes : 5));
+    const cum = [0];
+    for (let k = 0; k < n - 1; k++) cum.push(cum[k] + (+segs[k] || 0));
+    const add = (fromIdx, toIdx) => {
+      const rideMin = Math.abs(cum[toIdx] - cum[fromIdx]);
+      const reverse = toIdx < fromIdx;
+      const lo = Math.min(fromIdx, toIdx), hi = Math.max(fromIdx, toIdx);
+      const points = joinSegs(line.path, lo, hi, reverse);
+      state.adj.get(stops[fromIdx]).push({
+        to: stops[toIdx], kind: "transit", line: line.id, lineName: line.name || line.id,
+        fromStop: stops[fromIdx], toStop: stops[toIdx], rideMin: rideMin, points: points,
+        thpwId: line.thpwId, avgWait: line.avgWait, boardMin: 0, dist: timeEquivPx(rideMin)
+      });
+    };
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      if (j > i || line.bidirectional !== false) add(i, j);   // forward always; backward unless one-way
+    }
+  });
+}
+
+// Boarding wait (min) for a transit edge at a given time: live standby if we
+// have it and the arrival is near now, else the line's configured avgWait.
+function transitWaitFor(edge, atMin) {
+  if (showLiveWaits && edge.thpwId) {
+    const e = liveWaits.byId.get(String(edge.thpwId));
+    if (e && e.open && typeof e.wait === "number") {
+      const now = parkNowMin();
+      if (now === null || Math.abs(atMin - now) <= LIVE_WAIT_WINDOW) return e.wait;
+    }
+  }
+  return (typeof edge.avgWait === "number" && edge.avgWait >= 0) ? edge.avgWait : 0;
+}
+
+// Recompute transit edge weights for routing at a given time of day.
+function updateTransitWeights(atMin) {
+  state.adj.forEach(edges => {
+    for (const e of edges) {
+      if (e.kind !== "transit") continue;
+      e.boardMin = transitWaitFor(e, atMin);
+      e.dist = timeEquivPx(e.boardMin + e.rideMin);
+    }
+  });
+}
+
+// Split a route into walked pixels vs transit (ride + board) minutes, build the
+// drawn polyline, and list the transit legs for the timeline.
+function decomposeRoute(route) {
+  const path = route.path || [], edges = route.edges || [];
+  let walkPx = 0, transitRide = 0, transitBoard = 0;
+  const transitLegs = [], coords = [];
+  for (let i = 0; i < edges.length; i++) {
+    const e = edges[i], fromId = path[i];
+    let seg = (e.points && e.points.length >= 2) ? e.points.map(p => ({ x: p.x, y: p.y })) : [nodePt(fromId), nodePt(e.to)];
+    if (e.kind === "transit") {
+      transitRide += e.rideMin; transitBoard += (e.boardMin || 0);
+      transitLegs.push({ line: e.line, lineName: e.lineName, fromStop: e.fromStop, toStop: e.toStop, rideMin: e.rideMin, boardMin: e.boardMin || 0 });
+    } else {
+      walkPx += polylineLength(seg);
+    }
+    if (i > 0) seg = seg.slice(1);
+    for (const p of seg) coords.push(p);
+  }
+  if (!coords.length && path.length) coords.push(nodePt(path[0]));
+  return { walkPx: walkPx, transitRide: transitRide, transitBoard: transitBoard, coords: coords, transitLegs: transitLegs };
+}
+
 /* ---------- Dijkstra ---------------------------------------------------- */
 function dijkstra(start, goal) {
-  if (start === goal) return { path: [start], dist: 0 };
+  if (start === goal) return { path: [start], dist: 0, edges: [] };
   if (!state.nodes.has(start) || !state.nodes.has(goal)) return null;
   const distTo = new Map(), prev = new Map(), visited = new Set();
   state.nodes.forEach((_, id) => distTo.set(id, Infinity));
@@ -196,16 +300,22 @@ function dijkstra(start, goal) {
       const nd = distTo.get(cur) + e.dist;
       if (nd < distTo.get(e.to)) {
         distTo.set(e.to, nd);
-        prev.set(e.to, cur);
+        prev.set(e.to, { from: cur, edge: e });   // remember which edge we took (walk vs transit)
         pq.push({ id: e.to, d: nd });
       }
     }
   }
   if (distTo.get(goal) === Infinity) return null;
-  const path = [];
+  const path = [], edges = [];
   let cur = goal;
-  while (cur !== undefined) { path.unshift(cur); if (cur === start) break; cur = prev.get(cur); }
-  return { path, dist: distTo.get(goal) };
+  while (cur !== start) {
+    const p = prev.get(cur);
+    if (!p) break;
+    path.unshift(cur); edges.unshift(p.edge);
+    cur = p.from;
+  }
+  path.unshift(start);
+  return { path, dist: distTo.get(goal), edges };
 }
 
 /* ---------- Walk time & wait interpolation ------------------------------ */
@@ -322,6 +432,10 @@ function computeSequence() {
   for (const attrId of state.sequence) {
     const a = state.attractions.get(attrId);
     if (!a) continue;
+    // transit boarding waits change through the day — weight the lines for the
+    // moment this leg departs before routing (a close enough proxy for the
+    // moment we'd reach the boarding stop).
+    updateTransitWeights(curTime);
     // entrance: nearest access node when the attraction lists several, else its entrance
     let entranceId = a.entranceNodeId, exitId = a.exitNodeId, route = null;
     const access = (Array.isArray(a.accessNodeIds) ? a.accessNodeIds : []).filter(id => state.nodes.has(id));
@@ -337,12 +451,17 @@ function computeSequence() {
       route = dijkstra(curNode, curNode);
     }
     const pathIds = route ? route.path : [curNode, entranceId];
-    const routeCoords = route ? buildRoute(pathIds) : [nodePt(curNode), nodePt(entranceId)];
-    const distPx = route ? route.dist : polylineLength(routeCoords);
-    const walk = walkTimeMin(distPx);
+    // split the route into walked distance vs transit (rail/ferry) ride + wait
+    const leg = route ? decomposeRoute(route)
+                      : { walkPx: polylineLength([nodePt(curNode), nodePt(entranceId)]), transitRide: 0, transitBoard: 0, coords: [nodePt(curNode), nodePt(entranceId)], transitLegs: [] };
+    const routeCoords = leg.coords;
+    const distPx = leg.walkPx;                     // pixels actually WALKED (transit excluded)
+    const walkOnly = walkTimeMin(distPx);
+    const transitRide = leg.transitRide, transitBoard = leg.transitBoard;
+    const travel = walkOnly + transitRide + transitBoard;   // whole "get to the next stop" leg
     const reachable = !!route;
 
-    const walkStart = curTime, walkEnd = walkStart + walk;
+    const walkStart = curTime, walkEnd = walkStart + travel;
     const category = attrCat(a);
     // live wait > configured average > time-of-day; non-rides are 0
     const wait = waitFor(a, walkEnd);
@@ -353,9 +472,10 @@ function computeSequence() {
     steps.push({
       attractionId: attrId, name: a.name, category,
       pathIds, routeCoords,
-      reachable, distPx, walk, wait, ride,
+      reachable, distPx, walk: travel, walkOnly, transitRide, transitBoard, transitLegs: leg.transitLegs,
+      wait, ride,
       walkStart, walkEnd, waitStart, waitEnd, rideStart, rideEnd,
-      total: walk + wait + ride,
+      total: travel + wait + ride,
       entranceNodeId: entranceId, exitNodeId: exitId
     });
 
@@ -1568,7 +1688,7 @@ function applyData() {
     const waits = document.getElementById("ta-waits").value;
     if (!Array.isArray(nodes) || !Array.isArray(conns) || !Array.isArray(attrs))
       throw new Error("Nodes, connections, attractions must be JSON arrays.");
-    buildFromData(nodes, conns, attrs, waits);
+    buildFromData(nodes, conns, attrs, waits, SAMPLE.transport);   // transport isn't editable in the modal; keep the park's lines
     state.sequence = state.sequence.filter(id => state.attractions.has(id));
     stop();
     computeView(); refresh();
@@ -1897,7 +2017,7 @@ window.addEventListener("resize", resizeCanvas);
 
 /* ---------- Init -------------------------------------------------------- */
 function loadSample() {
-  buildFromData(SAMPLE.nodes, SAMPLE.connections, SAMPLE.attractions, SAMPLE.waitsTSV);
+  buildFromData(SAMPLE.nodes, SAMPLE.connections, SAMPLE.attractions, SAMPLE.waitsTSV, SAMPLE.transport);
   state.mapExtent = SAMPLE.mapExtent || null;
   if (typeof SAMPLE.feetPerPixel === "number" && SAMPLE.feetPerPixel > 0) {
     document.getElementById("ftPerPx").value = Math.round(SAMPLE.feetPerPixel * 1000) / 1000;
