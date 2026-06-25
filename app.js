@@ -997,6 +997,7 @@ let dragIdx = null;
 function renderSeq() {
   const el = document.getElementById("seqList");
   el.innerHTML = "";
+  seqHighlightIdx = -1;   // list rebuilt — let the animation re-apply the active highlight
   if (!state.sequence.length) {
     el.innerHTML = '<div class="empty-hint">Click attractions on the left to build your day &rarr;</div>';
     return;
@@ -1129,6 +1130,25 @@ function refresh() {
 
 /* ---------- Animation --------------------------------------------------- */
 let animRAF = null, animClock = 0, playing = false, activeStepIndex = -1, lastFrameTime = 0;
+let seqHighlightIdx = -1;   // which sequence item is currently highlighted (avoids re-scrolling every frame)
+
+// Highlight the current stop in the sequence list and keep it scrolled into
+// view. Only acts when the active step changes, so it doesn't fight the user's
+// scroll or re-run every animation frame. stepI < 0 clears the highlight.
+function highlightSeqStep(stepI) {
+  if (stepI === seqHighlightIdx) return;
+  seqHighlightIdx = stepI;
+  const list = document.getElementById("seqList");
+  if (!list) return;
+  list.querySelectorAll(".seq-item.active").forEach(x => x.classList.remove("active"));
+  if (stepI < 0) return;
+  const item = list.querySelector('.seq-item[data-idx="' + stepI + '"]');
+  if (!item) return;
+  item.classList.add("active");
+  // scroll the list container only (never the page), centering the active item
+  const lr = list.getBoundingClientRect(), ir = item.getBoundingClientRect();
+  list.scrollTop += (ir.top - lr.top) - (list.clientHeight - item.clientHeight) / 2;
+}
 
 function simSpanMin() {
   if (!state.steps.length) return 0;
@@ -1156,6 +1176,8 @@ function stop() {
   document.getElementById("playBtn").textContent = "▶ Play";
   document.getElementById("nowPlaying").classList.remove("show");
   document.querySelectorAll(".tl-row").forEach(r => r.style.background = "");
+  document.querySelectorAll(".seq-item.active").forEach(r => r.classList.remove("active"));
+  seqHighlightIdx = -1;
   draw();
 }
 
@@ -1340,6 +1362,7 @@ function renderAnimAt(clock) {
     const idx = phase === "walk" ? 0 : phase === "wait" ? 1 : (stepCat === "ride" ? 2 : 1);
     if (rows[idx]) rows[idx].style.background = "rgba(92,200,255,0.14)";
   }
+  highlightSeqStep(stepI);   // mark + scroll the current stop in the sequence list
   setStepAudio(stepI, phase);
 }
 
