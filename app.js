@@ -385,6 +385,7 @@ let hoverStep = null; // step index whose walk segment is hovered (shows dist/ti
 // One live source — ThemeParks.wiki — powers both standby waits and Lightning Lane.
 let showLiveWaits = localStorage.getItem("ridesim.liveWaits") === "1"; // standby wait overlay
 let showLL = localStorage.getItem("ridesim.ll") === "1";               // Lightning Lane overlay
+let llPanelCollapsed = localStorage.getItem("ridesim.llCollapsed") === "1"; // LL list minimized to header
 // byId: entity GUID -> entry; byName: normName -> entry; entry = {name, wait, open, ll}
 const liveWaits = { byId: new Map(), byName: new Map(), fetchedAt: 0, error: false, errMsg: "",
                     anyOpen: false, anyLL: false, total: 0, withLL: 0, withFc: 0 };
@@ -890,11 +891,12 @@ function t12FromISO(iso) {
   return (h % 12 || 12) + ":" + String(m).padStart(2, "0") + " " + ap;
 }
 function drawLLBadge(X, Y, r) {
-  const bx = X, by = Y + r + 1;                // bottom-center, below the circle
-  ctx.beginPath(); ctx.arc(bx, by, 7, 0, 7);
+  const br = Math.max(4, r * 0.55);            // badge scales with the circle (smaller on mobile)
+  const bx = X, by = Y + r + br * 0.35;        // nestled just below the circle
+  ctx.beginPath(); ctx.arc(bx, by, br, 0, 7);
   ctx.fillStyle = "rgba(16,22,36,0.95)"; ctx.fill();
-  ctx.lineWidth = 1.5; ctx.strokeStyle = LL_COLOR; ctx.stroke();
-  ctx.font = "9px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.lineWidth = br >= 6 ? 1.5 : 1; ctx.strokeStyle = LL_COLOR; ctx.stroke();
+  ctx.font = (br * 1.25).toFixed(1) + "px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.fillText("⚡", bx, by);
 }
 // proximity-sorted panel of rides with an LL available now
@@ -912,7 +914,7 @@ function renderLLPanel() {
     rows.push({ name: a.name, ll: e, dist: r ? r.dist : Infinity });
   });
   rows.sort((x, y) => x.dist - y.dist);
-  let html = '<div class="ll-head">⚡ Lightning Lanes — nearest</div>';
+  let html = '<div class="ll-head">⚡ Lightning Lanes — nearest<span class="ll-caret">▾</span></div>';
   if (!rows.length) {
     let msg;
     if (!liveWaits.fetchedAt) msg = liveWaits.error ? "fetch failed (CORS/proxy)" : "loading…";
@@ -930,6 +932,14 @@ function renderLLPanel() {
   }
   html += '<div class="ll-credit">LL data: <a href="https://themeparks.wiki" target="_blank" rel="noopener">ThemeParks.wiki</a></div>';
   el.innerHTML = html;
+  // tap the header to minimize the list down to just the title (keeps the map clear)
+  el.classList.toggle("collapsed", llPanelCollapsed);
+  const head = el.querySelector(".ll-head");
+  if (head) head.onclick = () => {
+    llPanelCollapsed = !llPanelCollapsed;
+    try { localStorage.setItem("ridesim.llCollapsed", llPanelCollapsed ? "1" : "0"); } catch (e) {}
+    el.classList.toggle("collapsed", llPanelCollapsed);
+  };
 }
 // Attribution for ThemeParks.wiki; shown whenever an overlay is on.
 function updateLiveCredit() {
