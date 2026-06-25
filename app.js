@@ -1256,7 +1256,8 @@ function currentStretch(clock) {
 
 // Hard-coded "spin" animations: the avatar orbits the ride's icon during the
 // ride. dir: 1 = clockwise, -1 = counter-clockwise. seg > 0 steps in N equal
-// segments (e.g. the rotating theater). type "epi" = spirograph: the avatar
+// segments (e.g. the rotating theater). loops = laps over the ride for a smooth
+// orbit (default 5; higher = faster spin). type "epi" = spirograph: the avatar
 // rides a small circle whose centre revolves on the big circle (revs = big
 // turns over the ride, spins = small turns per big turn).
 const RIDE_SPIN = {
@@ -1264,6 +1265,7 @@ const RIDE_SPIN = {
   dumbo:                { dir: 1,  seg: 0 },
   carousel:             { dir: 1,  seg: 0 },
   astro_orbiter:        { dir: 1,  seg: 0 },
+  mission_space:        { dir: 1,  seg: 0, loops: 8 },   // centrifuge — spins faster than carousel/dumbo (5)
   carousel_of_progress: { dir: -1, seg: 6, rPxOverride: 24, rPxMobile: 10 },
   teacups:              { type: "epi", dir: 1, revs: 5, spins: 6 }
 };
@@ -1333,7 +1335,7 @@ function renderAnimAt(clock) {
           // orbit the avatar around the icon's circumference (no overlap)
           let f = frac;
           if (spin.seg > 0) f = Math.floor(f * spin.seg) / spin.seg;  // step in N segments
-          const loops = spin.seg > 0 ? 1 : 5;                          // smooth orbits do 5 laps
+          const loops = spin.seg > 0 ? 1 : (spin.loops || 5);          // smooth orbits do 5 laps (spin.loops overrides)
           const ang = top + spin.dir * f * TAU * loops;
           // default: just inside the rim; some rides pin a fixed radius, with a
           // smaller value on mobile where the icon is smaller.
