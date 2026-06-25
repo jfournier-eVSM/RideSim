@@ -44,6 +44,7 @@ function attrDuration(a) {
 function attrClosed(a) { return !!(a && a.closed); }
 const CLOSED_COLOR = "#6b7687";
 const LL_COLOR = "#ffd23b";   // gold — Lightning Lane countdown fill + bolt badge
+const TRANSIT_COLOR = "#46c6b8";   // teal — transit (rail/ferry) legs on the map + timeline
 // Marker colors per category: { off: not in sequence, on: in sequence }.
 const ATTR_COLORS = {
   ride:       { off: "#ffcc4d", on: "#5cc8ff" },
@@ -187,6 +188,13 @@ function buildFromData(nodes, connections, attractions, waitsTSV, transport) {
 // minimizing time: walkTimeMin(timeEquivPx(m)) === m.
 function timeEquivPx(min) { return (min * WALK_FT_PER_MIN) / ftPerPx(); }
 
+// Friendly name for a stop node (its name, else a humanized id).
+function stopName(id) {
+  const n = state.nodes.get(id);
+  if (n && n.name) return n.name;
+  return String(id || "").replace(/_(in|out)$/, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
 // Concatenate a line's per-segment polylines for stops i..j (reverse for j->i).
 function joinSegs(pathArr, i, j, reverse) {
   if (!Array.isArray(pathArr)) return null;
@@ -262,22 +270,32 @@ function updateTransitWeights(atMin) {
 // drawn polyline, and list the transit legs for the timeline.
 function decomposeRoute(route) {
   const path = route.path || [], edges = route.edges || [];
-  let walkPx = 0, transitRide = 0, transitBoard = 0;
-  const transitLegs = [], coords = [];
+  let walkPx = 0, transitRide = 0, transitBoard = 0, lenAcc = 0;
+  const transitLegs = [], coords = [], spanPx = [], travelLegs = [];   // travelLegs: walk/transit sub-legs in route order
   for (let i = 0; i < edges.length; i++) {
     const e = edges[i], fromId = path[i];
     let seg = (e.points && e.points.length >= 2) ? e.points.map(p => ({ x: p.x, y: p.y })) : [nodePt(fromId), nodePt(e.to)];
+    const segLen = polylineLength(seg);
     if (e.kind === "transit") {
       transitRide += e.rideMin; transitBoard += (e.boardMin || 0);
       transitLegs.push({ line: e.line, lineName: e.lineName, fromStop: e.fromStop, toStop: e.toStop, rideMin: e.rideMin, boardMin: e.boardMin || 0 });
+      spanPx.push({ a: lenAcc, b: lenAcc + segLen, lineName: e.lineName, toStop: e.toStop });
+      travelLegs.push({ kind: "transit", lineName: e.lineName, toStop: e.toStop, rideMin: e.rideMin, boardMin: e.boardMin || 0 });
     } else {
-      walkPx += polylineLength(seg);
+      walkPx += segLen;
+      const last = travelLegs[travelLegs.length - 1];
+      if (last && last.kind === "walk") last.px += segLen;   // merge consecutive walk edges
+      else travelLegs.push({ kind: "walk", px: segLen });
     }
+    lenAcc += segLen;
     if (i > 0) seg = seg.slice(1);
     for (const p of seg) coords.push(p);
   }
   if (!coords.length && path.length) coords.push(nodePt(path[0]));
-  return { walkPx: walkPx, transitRide: transitRide, transitBoard: transitBoard, coords: coords, transitLegs: transitLegs };
+  // convert transit spans to fractions of the full drawn polyline (for the animation)
+  const total = lenAcc || 1;
+  const transitSpans = spanPx.map(s => ({ a: s.a / total, b: s.b / total, lineName: s.lineName, toStop: s.toStop }));
+  return { walkPx: walkPx, transitRide: transitRide, transitBoard: transitBoard, coords: coords, transitLegs: transitLegs, transitSpans: transitSpans, travelLegs: travelLegs };
 }
 
 /* ---------- Dijkstra ---------------------------------------------------- */
@@ -472,7 +490,7 @@ function computeSequence() {
     steps.push({
       attractionId: attrId, name: a.name, category,
       pathIds, routeCoords,
-      reachable, distPx, walk: travel, walkOnly, transitRide, transitBoard, transitLegs: leg.transitLegs,
+      reachable, distPx, walk: travel, walkOnly, transitRide, transitBoard, transitLegs: leg.transitLegs, transitSpans: leg.transitSpans, travelLegs: leg.travelLegs,
       wait, ride,
       walkStart, walkEnd, waitStart, waitEnd, rideStart, rideEnd,
       total: travel + wait + ride,
@@ -668,6 +686,7 @@ function draw(marker) {
     state.adj.forEach((edges, id) => {
       const n = state.nodes.get(id);
       edges.forEach(e => {
+        if (e.kind === "transit") return;   // transit lines are drawn separately, in teal
         const key = id < e.to ? id + e.to : e.to + id;
         if (drawn.has(key)) return; drawn.add(key);
         const m = state.nodes.get(e.to);
@@ -678,6 +697,22 @@ function draw(marker) {
       });
     });
   }
+
+  // transport lines (rail / ferry) — drawn as part of the map, teal, with stop dots
+  (state.transport || []).forEach(line => {
+    const stops = (line.stops || []).filter(id => state.nodes.has(id));
+    for (let k = 0; k < stops.length - 1; k++) {
+      const seg = (Array.isArray(line.path) && Array.isArray(line.path[k]) && line.path[k].length >= 2)
+        ? line.path[k] : [nodePt(stops[k]), nodePt(stops[k + 1])];
+      drawPath(seg, "rgba(70,198,184,0.55)", 2.2, false);
+    }
+    stops.forEach(id => {
+      const p = nodePt(id);
+      ctx.beginPath(); ctx.arc(tx(p.x), ty(p.y), 4, 0, 7);
+      ctx.fillStyle = TRANSIT_COLOR; ctx.fill();
+      ctx.lineWidth = 1.5; ctx.strokeStyle = "#0f1420"; ctx.stroke();
+    });
+  });
 
   // ride tracks (always faint). The active ride's track brightens during play.
   const activeTrackId = (activeStepIndex >= 0 && state.steps[activeStepIndex])
@@ -1222,16 +1257,34 @@ function renderTimeline() {
     box.className = "tl-step";
     const warn = s.reachable ? "" : ' <span style="color:#ff8a8a">(no path!)</span>';
     const meta = catMeta(s.category);
-    const defs = [["walk", "Walk to " + s.name, s.walk, s.walkStart, s.walkEnd]];
-    if (s.category === "ride") defs.push(["wait", "Wait for " + s.name, s.wait, s.waitStart, s.waitEnd]);
-    defs.push([meta.cls, meta.verb + s.name, s.ride, s.rideStart, s.rideEnd]);
+    // the "get there" leg may be plain walking or walk + transit (rail/ferry),
+    // laid out in route order across walkStart..walkEnd.
+    const tl = (s.travelLegs && s.travelLegs.length) ? s.travelLegs : [{ kind: "walk", px: s.distPx }];
+    const lastWalkIdx = tl.map(x => x.kind).lastIndexOf("walk");
+    const defs = [];
+    let cur = s.walkStart;
+    tl.forEach((t, ti) => {
+      if (t.kind === "transit") {
+        const d = (t.rideMin || 0) + (t.boardMin || 0);
+        const note = t.boardMin ? " (" + Math.round(t.boardMin) + "m wait)" : "";
+        defs.push({ cls: "transit", phase: "transit", lbl: "🚂 " + t.lineName + " to " + stopName(t.toStop) + note, dur: d, a: cur, b: cur + d });
+        cur += d;
+      } else {
+        const d = walkTimeMin(t.px);
+        const lbl = (ti === lastWalkIdx) ? "Walk to " + s.name : "Walk";
+        defs.push({ cls: "walk", phase: "walk", lbl: lbl, dur: d, a: cur, b: cur + d, distFt: stepFeet(t.px) });
+        cur += d;
+      }
+    });
+    if (s.category === "ride") defs.push({ cls: "wait", phase: "wait", lbl: "Wait for " + s.name, dur: s.wait, a: s.waitStart, b: s.waitEnd });
+    defs.push({ cls: meta.cls, phase: "ride", lbl: meta.verb + s.name, dur: s.ride, a: s.rideStart, b: s.rideEnd });
     const rows = defs.map(d => {
-      const wpct = Math.max(4, (d[2] / maxSpan) * 120);
-      const dist = d[0] === "walk" ? ' &middot; ' + fmtFeet(stepFeet(s.distPx)) : '';
-      return '<div class="tl-row ' + d[0] + '" data-step="' + i + '">' +
+      const wpct = Math.max(4, (d.dur / maxSpan) * 120);
+      const dist = (typeof d.distFt === "number") ? ' &middot; ' + fmtFeet(d.distFt) : '';
+      return '<div class="tl-row ' + d.cls + '" data-step="' + i + '" data-phase="' + d.phase + '">' +
         '<span class="bar" style="width:' + wpct + 'px"></span>' +
-        '<span class="lbl">' + esc(d[1]) + ' <b>' + fmtDur(d[2]) + '</b>' + dist + '</span>' +
-        '<span class="tm">' + minToHM(d[3]) + '&ndash;' + minToHM(d[4]) + '</span></div>';
+        '<span class="lbl">' + esc(d.lbl) + ' <b>' + fmtDur(d.dur) + '</b>' + dist + '</span>' +
+        '<span class="tm">' + minToHM(d.a) + '&ndash;' + minToHM(d.b) + '</span></div>';
     }).join("");
     box.innerHTML = '<div class="tl-head"><span>' + (i + 1) + '. ' + esc(s.name) + warn +
       '</span><span class="tot">' + fmtDur(s.total) + '</span></div>' + rows;
@@ -1243,15 +1296,17 @@ function renderSummary() {
   const el = document.getElementById("summary");
   if (!state.steps.length) { el.innerHTML = '<div class="row">Add attractions to see totals.</div>'; return; }
   const last = state.steps[state.steps.length - 1];
-  const totWalk = state.steps.reduce((s, x) => s + x.walk, 0);
+  const totWalk = state.steps.reduce((s, x) => s + (typeof x.walkOnly === "number" ? x.walkOnly : x.walk), 0);
+  const totTransit = state.steps.reduce((s, x) => s + (x.transitRide || 0) + (x.transitBoard || 0), 0);
   const totWait = state.steps.reduce((s, x) => s + x.wait, 0);
   const totRide = state.steps.reduce((s, x) => s + x.ride, 0);
   const totFt = state.steps.reduce((s, x) => s + stepFeet(x.distPx), 0);
-  const grand = totWalk + totWait + totRide;
+  const grand = totWalk + totTransit + totWait + totRide;
   el.innerHTML =
     '<div class="big">' + fmtDur(grand) + ' total</div>' +
     '<div class="row"><span>Finish time</span><span>' + minToHM(last.rideEnd) + '</span></div>' +
     '<div class="row"><span style="color:var(--walk)">Walking</span><span>' + fmtDur(totWalk) + ' &middot; ' + fmtDist(totFt) + '</span></div>' +
+    (totTransit > 0 ? '<div class="row"><span style="color:var(--transit)">Transit</span><span>' + fmtDur(totTransit) + '</span></div>' : '') +
     '<div class="row"><span style="color:var(--wait)">Waiting</span><span>' + fmtDur(totWait) + '</span></div>' +
     '<div class="row"><span style="color:var(--ride)">Riding</span><span>' + fmtDur(totRide) + '</span></div>' +
     '<div class="row"><span>Attractions</span><span>' + state.steps.length + '</span></div>';
@@ -1411,8 +1466,10 @@ function renderAnimAt(clock) {
       stepI = i; phase = "walk";
       const frac = s.walk > 0 ? (absT - s.walkStart) / s.walk : 1;
       const p = pointAlong(s.routeCoords, frac);
-      marker = { x: p.x, y: p.y, stroke: "#5cc8ff", scale: persistentScaleBefore(i) };
-      info = "Walking to " + s.name;
+      // on a transit segment? (spans are length-fractions of the drawn route)
+      const span = (s.transitSpans || []).find(sp => frac >= sp.a && frac <= sp.b);
+      marker = { x: p.x, y: p.y, stroke: span ? TRANSIT_COLOR : "#5cc8ff", scale: persistentScaleBefore(i) };
+      info = span ? ("🚂 " + span.lineName + " → " + stopName(span.toStop)) : ("Walking to " + s.name);
       break;
     } else if (absT < s.waitEnd) {
       stepI = i; phase = "wait";
@@ -1492,17 +1549,18 @@ function renderAnimAt(clock) {
   const meta = catMeta(stepCat);
   const colors = { walk: "var(--walk)", wait: "var(--wait)", ride: meta.barVar, done: "var(--good)" };
   const labels = { walk: "WALK", wait: "WAIT", ride: meta.phase, done: "DONE" };
-  np.innerHTML = '<span class="badge" style="background:' + colors[phase] + ';color:#0f1420">' +
-    labels[phase] + '</span><span>' + esc(info) + '</span>' +
+  const onTransit = phase === "walk" && /^🚂/.test(info);   // riding the rail/ferry, not walking
+  const badgeColor = onTransit ? "var(--transit)" : colors[phase];
+  const badgeLabel = onTransit ? "TRANSIT" : labels[phase];
+  np.innerHTML = '<span class="badge" style="background:' + badgeColor + ';color:#0f1420">' +
+    badgeLabel + '</span><span>' + esc(info) + '</span>' +
     '<span style="color:var(--muted)">🕐 ' + minToHM(absT) + '</span>';
 
-  // highlight active timeline row
+  // highlight active timeline row (match by phase — rows now vary with transit)
   document.querySelectorAll(".tl-row").forEach(r => r.style.background = "");
   if (stepI >= 0) {
-    const rows = document.querySelectorAll('.tl-row[data-step="' + stepI + '"]');
-    // non-rides omit the wait row, so their duration row is index 1, not 2
-    const idx = phase === "walk" ? 0 : phase === "wait" ? 1 : (stepCat === "ride" ? 2 : 1);
-    if (rows[idx]) rows[idx].style.background = "rgba(92,200,255,0.14)";
+    const row = document.querySelector('.tl-row[data-step="' + stepI + '"][data-phase="' + phase + '"]');
+    if (row) row.style.background = "rgba(92,200,255,0.14)";
   }
   highlightSeqStep(stepI);   // mark + scroll the current stop in the sequence list
   setStepAudio(stepI, phase);

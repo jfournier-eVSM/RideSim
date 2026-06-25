@@ -12,6 +12,7 @@
     --pin: #ff8aa8;
     --restroom: #6cb8e6;
     --other: #9aa7bd;
+    --transit: #46c6b8;
     --text: #e6ecf5;
     --muted: #8a98b0;
     --good: #5fd38a;
@@ -220,6 +221,7 @@
   .tl-row.pin .bar { background: var(--pin); }
   .tl-row.restroom .bar { background: var(--restroom); }
   .tl-row.other .bar { background: var(--other); }
+  .tl-row.transit .bar { background: var(--transit); }
   .summary { padding: 10px 12px; border-top: 1px solid var(--border); font-size: 13px; }
   .summary .big { font-size: 22px; font-weight: 700; color: var(--accent2); }
   .summary .row { display: flex; justify-content: space-between; margin-top: 4px; color: var(--muted); }
