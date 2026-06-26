@@ -152,6 +152,7 @@ SAMPLE.nodes = [
   { "id": "node131", "isAttraction": false, "x": 650, "y": 264 },
   { "id": "node132", "isAttraction": false, "x": 653, "y": 241 },
   { "id": "node133", "isAttraction": false, "x": 651, "y": 217 },
+  { "id": "friendship_n", "isAttraction": false, "x": 665, "y": 954 },
   { "id": "node134", "isAttraction": false, "x": 664, "y": 905 },
   { "id": "node135", "isAttraction": false, "x": 664, "y": 878 },
   { "id": "node136", "isAttraction": false, "x": 664, "y": 846 },
@@ -241,6 +242,7 @@ SAMPLE.nodes = [
   { "id": "node220", "isAttraction": false, "x": 913, "y": 642 },
   { "id": "node221", "isAttraction": false, "x": 906, "y": 613 },
   { "id": "node222", "isAttraction": false, "x": 898, "y": 571 },
+  { "id": "friendship_s", "isAttraction": false, "x": 911, "y": 1376 },
   { "id": "node223", "isAttraction": false, "x": 909, "y": 585 },
   { "id": "node224", "isAttraction": false, "x": 904, "y": 530 },
   { "id": "node225", "isAttraction": false, "x": 903, "y": 508 },
@@ -271,7 +273,7 @@ SAMPLE.nodes = [
   { "id": "node250", "isAttraction": false, "x": 1013, "y": 1069 },
   { "id": "node251", "isAttraction": false, "x": 1028, "y": 1209 },
   { "id": "node252", "isAttraction": false, "x": 1040, "y": 1199 },
-  { "id": "node253", "isAttraction": false, "x": 1042, "y": 1189 },
+  { "id": "node253", "isAttraction": false, "x": 1041, "y": 1189 },
   { "id": "node254", "isAttraction": false, "x": 1035, "y": 1172 },
   { "id": "node255", "isAttraction": false, "x": 1050, "y": 1163 },
   { "id": "node256", "isAttraction": false, "x": 1059, "y": 1337 },
@@ -400,7 +402,7 @@ SAMPLE.connections = [
   { "from": "imagination_in", "to": "node54", "points": [{ "x": 421, "y": 723 }, { "x": 444, "y": 727 }] },
   { "from": "imagination_out", "to": "node53", "points": [{ "x": 424, "y": 742 }, { "x": 440, "y": 742 }] },
   { "from": "imagination_in", "to": "node55", "points": [{ "x": 421, "y": 723 }, { "x": 445, "y": 702 }] },
-  { "from": "imagination_out", "to": "node54", "points": [{ "x": 424, "y": 742 }, { "x": 445, "y": 727 }] },
+  { "from": "imagination_out", "to": "node54", "points": [{ "x": 424, "y": 742 }, { "x": 444, "y": 727 }] },
   { "from": "node55", "to": "node54", "points": [{ "x": 445, "y": 702 }, { "x": 445, "y": 727 }] },
   { "from": "node36", "to": "node55", "points": [{ "x": 423, "y": 685 }, { "x": 445, "y": 702 }] },
   { "from": "node49", "to": "node36", "points": [{ "x": 433, "y": 650 }, { "x": 423, "y": 685 }] },
@@ -599,9 +601,9 @@ SAMPLE.connections = [
   { "from": "node246", "to": "node249", "points": [{ "x": 993, "y": 1115 }, { "x": 1006, "y": 1182 }] },
   { "from": "node251", "to": "node249", "points": [{ "x": 1028, "y": 1209 }, { "x": 1006, "y": 1182 }] },
   { "from": "node252", "to": "node251", "points": [{ "x": 1040, "y": 1199 }, { "x": 1028, "y": 1209 }] },
-  { "from": "node253", "to": "node252", "points": [{ "x": 1042, "y": 1189 }, { "x": 1040, "y": 1199 }] },
-  { "from": "node254", "to": "node253", "points": [{ "x": 1035, "y": 1172 }, { "x": 1042, "y": 1189 }] },
-  { "from": "reflections_of_china_in", "to": "node253", "points": [{ "x": 1061, "y": 1187 }, { "x": 1042, "y": 1189 }] },
+  { "from": "node253", "to": "node252", "points": [{ "x": 1041, "y": 1189 }, { "x": 1040, "y": 1199 }] },
+  { "from": "node254", "to": "node253", "points": [{ "x": 1035, "y": 1172 }, { "x": 1041, "y": 1189 }] },
+  { "from": "reflections_of_china_in", "to": "node253", "points": [{ "x": 1061, "y": 1187 }, { "x": 1041, "y": 1189 }] },
   { "from": "reflections_of_china_out", "to": "node253", "points": [{ "x": 1063, "y": 1195 }, { "x": 1042, "y": 1189 }] },
   { "from": "node255", "to": "node254", "points": [{ "x": 1050, "y": 1163 }, { "x": 1035, "y": 1172 }] },
   { "from": "node259", "to": "node255", "points": [{ "x": 1077, "y": 1159 }, { "x": 1050, "y": 1163 }] },
@@ -723,7 +725,7 @@ SAMPLE.attractions = [
   { "id": "disney_and_pixar_short_film_festival", "name": "Disney and Pixar Short Film Festival", "entranceNodeId": "disney_and_pixar_short_film_festival_in", "exitNodeId": "disney_and_pixar_short_film_festival_out", "displayLocation": { "x": 410, "y": 766 }, "rideDuration": 18, "waitId": "0", "thpwId": "35ed719b-f7f0-488f-8346-4fbf8055d373" },
   { "id": "canada_far_and_wide", "name": "Canada Far and Wide", "entranceNodeId": "canada_far_and_wide_in", "exitNodeId": "canada_far_and_wide_out", "displayLocation": { "x": 317, "y": 885 }, "rideDuration": 5, "waitId": "0", "thpwId": "61fb49f8-e62f-4e1c-ae0e-8ab9929037bc" },
   { "id": "kidcot_fun_stops_canada", "name": "Kidcot Fun Stops Canada", "entranceNodeId": "kidcot_fun_stops_canada_in", "exitNodeId": "kidcot_fun_stops_canada_out", "displayLocation": { "x": 347, "y": 860 }, "rideDuration": 10, "waitId": "0", "thpwId": "3ace01d1-15fc-4fbb-99e4-81a696cb2d05" },
-  { "id": "remys_ratatouille", "name": "Remy’s Ratatouille", "entranceNodeId": "remys_ratatouille_in", "exitNodeId": "remys_ratatouille_out", "displayLocation": { "x": 164, "y": 1439 }, "rideDuration": 5, "waitId": "0" },
+  { "id": "remys_ratatouille", "name": "Remy’s Ratatouille", "entranceNodeId": "remys_ratatouille_in", "exitNodeId": "remys_ratatouille_out", "displayLocation": { "x": 164, "y": 1439 }, "rideDuration": 5, "waitId": "0", "thpwId": "1e735ffb-4868-47f1-b2cd-2ac1156cd5f0" },
   { "id": "international_gateway", "name": "International Gateway", "entranceNodeId": "international_gateway_in", "exitNodeId": "international_gateway_out", "displayLocation": { "x": 61, "y": 1227 }, "rideDuration": 5, "waitId": "0" },
   { "id": "beauty_and_the_beast_singalong", "name": "Beauty and the Beast Singalong", "entranceNodeId": "beauty_and_the_beast_singalong_in", "exitNodeId": "beauty_and_the_beast_singalong_out", "displayLocation": { "x": 180, "y": 1322 }, "rideDuration": 5, "waitId": "0" },
   { "id": "gallery_of_arts_and_history", "name": "Gallery of Arts and History", "entranceNodeId": "gallery_of_arts_and_history_in", "exitNodeId": "gallery_of_arts_and_history_out", "displayLocation": { "x": 329, "y": 1452 }, "rideDuration": 5, "waitId": "0", "thpwId": "07dbeaea-85fa-45f2-872f-02f9e7510419" },
@@ -760,7 +762,14 @@ SAMPLE.feetPerPixel = 1.341463;
 // Stops are graph nodes; segments are DIRECTED (from -> to). Written from the
 // Visio "transit_<Name>" layers by VisioExport.bas.
 // @RIDESIM:TRANSPORT:START
-SAMPLE.transport = [];
+SAMPLE.transport = [
+  { "id": "friendshipboat", "name": "FriendshipBoat",
+    "stops": [{ "node": "friendship_n", "avgWait": 0. }, { "node": "friendship_s", "avgWait": 0. }],
+    "segments": [
+    { "from": "friendship_n", "to": "friendship_s", "minutes": 6., "path": [{ "x": 665, "y": 954 }, { "x": 904, "y": 1335 }, { "x": 887, "y": 1313 }, { "x": 874, "y": 1300 }, { "x": 859, "y": 1287 }, { "x": 832, "y": 1269 }, { "x": 911, "y": 1376 }] },
+    { "from": "friendship_s", "to": "friendship_n", "minutes": 6., "path": [{ "x": 914, "y": 1379 }, { "x": 674, "y": 998 }, { "x": 692, "y": 1020 }, { "x": 704, "y": 1033 }, { "x": 719, "y": 1046 }, { "x": 746, "y": 1064 }, { "x": 667, "y": 957 }] }
+    ] }
+];
 // @RIDESIM:TRANSPORT:END
 
 // Wait times TSV — hourly points, code interpolates between them.
