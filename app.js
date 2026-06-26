@@ -807,19 +807,30 @@ function draw(marker) {
     });
   }
 
-  // transport lines (rail / ferry) — drawn as part of the map, teal, with stop dots
+  // transport lines (rail / ferry) — faint like ride tracks; the line currently
+  // being ridden brightens during animation.
+  const actStep = (playing && activeStepIndex >= 0) ? state.steps[activeStepIndex] : null;
+  const activeLines = new Set();
+  if (actStep) {
+    if (actStep.line) activeLines.add(actStep.line);
+    (actStep.transitLegs || []).forEach(t => activeLines.add(t.line));
+  }
   (state.transport || []).forEach(line => {
+    const bright = activeLines.has(line.id);
+    const col = bright ? "rgba(70,198,184,0.9)" : "rgba(70,198,184,0.22)";
     (line.segments || []).forEach(seg => {
       if (!seg || !state.nodes.has(seg.from) || !state.nodes.has(seg.to)) return;
       const path = (Array.isArray(seg.path) && seg.path.length >= 2) ? seg.path : [nodePt(seg.from), nodePt(seg.to)];
-      drawPath(path, "rgba(70,198,184,0.55)", 2.2, false);
+      drawPath(path, col, bright ? 2.6 : 1.5, false);
     });
+    ctx.globalAlpha = bright ? 1 : 0.4;
     lineStops(line).forEach(s => {
       const p = nodePt(s.node);
-      ctx.beginPath(); ctx.arc(tx(p.x), ty(p.y), 4, 0, 7);
+      ctx.beginPath(); ctx.arc(tx(p.x), ty(p.y), bright ? 4.5 : 3.5, 0, 7);
       ctx.fillStyle = TRANSIT_COLOR; ctx.fill();
       ctx.lineWidth = 1.5; ctx.strokeStyle = "#0f1420"; ctx.stroke();
     });
+    ctx.globalAlpha = 1;
   });
 
   // ride tracks (always faint). The active ride's track brightens during play.
