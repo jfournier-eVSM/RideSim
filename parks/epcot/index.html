@@ -18,11 +18,10 @@
     <label class="ctl" id="mapOpacityCtl">Map <input type="range" id="bgOpacity" min="0" max="100" value="100" style="width:70px" title="Background image opacity"></label>
     <button id="bgAdjustBtn" style="display:none" title="Drag to move the map, scroll to scale it, to align it with the nodes">⤢ Align Map</button>
     <button id="bgFitBtn" style="display:none" title="Scale &amp; center the map over the nodes as a starting point">Fit</button>
-    <button id="graphToggle" title="Show/hide the node + path network (route stays visible)">◉ Graph</button>
     <button id="planToggle" title="Highlight the day's route with direction arrows">🗺 Plan</button>
     <button id="liveToggle" title="Show live standby wait times inside ride circles (ThemeParks.wiki)">⏱ Waits</button>
     <button id="llToggle" title="Show rides with a paid Lightning Lane available now, nearest first (ThemeParks.wiki)">⚡ LL</button>
-    <button id="audioToggle" title="Play a location's audio during the animation (when it has an audio clip)">🔊 Audio</button>
+    <button id="audioToggle" style="display:none" title="Play a location's audio during the animation (when it has an audio clip)">🔊 Audio</button>
     <label class="ctl">Speed
       <select id="animSpeed" class="speed">
         <option value="20">Fast (20 min/s)</option>
@@ -132,7 +131,7 @@
     <div class="modal-foot">
       <span id="modalMsg" class="err"></span>
       <button id="loadSample">Reset to Sample</button>
-      <button id="applyData" class="primary">Apply &amp; Render</button>
+      <button id="applyData" class="primary">Apply &amp; View</button>
       <button id="closeModal">Close</button>
     </div>
   </div>

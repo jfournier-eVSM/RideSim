@@ -742,7 +742,7 @@ function attrSize() {
 // (scale + offset), so any-resolution image can be aligned to the nodes.
 // Persisted to localStorage so alignment survives a refresh.
 const bg = Object.assign({ scale: 1, offX: 0, offY: 0, opacity: 1 }, loadBg());
-let showGraph = localStorage.getItem("ridesim.showGraph") !== "0"; // node/edge network visibility
+let showGraph = localStorage.getItem("ridesim.showGraph") === "1"; // node/edge network (off by default; toggle removed)
 let hoverAttr = null; // attraction id whose label is shown on map hover
 let labelHit = null;  // screen rect of the shown hover label (click/tap to add)
 let showPlan = localStorage.getItem("ridesim.showPlan") === "1"; // highlight the day's route
@@ -2382,13 +2382,29 @@ document.getElementById("exportBtn").onclick = exportPlan;
 { const sb = document.getElementById("shareBtn"); if (sb) sb.onclick = shareLink; }
 document.getElementById("clearSeq").onclick = () => { state.sequence = []; stop(); refresh(); };
 // "Paste" opens the data modal focused on the Plan tab (a copy/paste surface).
-document.getElementById("pasteBtn").onclick = () => {
+document.getElementById("pasteBtn").onclick = pastePlanFromClipboard;
+// Open the data modal focused on the Plan tab (manual copy/paste surface).
+function openPlanModal() {
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === "plan"));
   document.querySelectorAll(".pane").forEach(p => p.classList.toggle("active", p.dataset.pane === "plan"));
   openModal();
   const ta = document.getElementById("ta-plan");
   if (ta) { ta.focus(); ta.select(); }
-};
+}
+// Read the clipboard and load the plan straight away; fall back to the modal if
+// the clipboard can't be read (permission denied / unsupported / empty).
+function pastePlanFromClipboard() {
+  const btn = document.getElementById("pasteBtn");
+  if (navigator.clipboard && navigator.clipboard.readText) {
+    navigator.clipboard.readText().then(text => {
+      if (!text || !text.trim()) { openPlanModal(); return; }
+      const r = parsePlan(text);
+      state.sequence = r.seq; stop(); refresh();
+      if (r.unmatched.length) alert("Loaded " + r.seq.length + " stop(s). Couldn't match:\n" + r.unmatched.join("\n"));
+      else flashBtn(btn, "✓ Loaded " + r.seq.length);
+    }).catch(() => openPlanModal());
+  } else openPlanModal();
+}
 document.getElementById("startTime").onchange = () => { stop(); refresh(); };
 // With a sequence stop selected, Up/Down arrows move to the prev/next stop
 // (ignored while typing in a field).
@@ -2414,12 +2430,14 @@ document.getElementById("bgOpacity").oninput = (e) => {
 };
 document.getElementById("bgAdjustBtn").onclick = toggleBgAdjust;
 document.getElementById("bgFitBtn").onclick = bgFit;
-function setGraphToggleUI() { document.getElementById("graphToggle").classList.toggle("active", showGraph); }
-document.getElementById("graphToggle").onclick = () => {
-  showGraph = !showGraph;
-  localStorage.setItem("ridesim.showGraph", showGraph ? "1" : "0");
-  setGraphToggleUI(); draw();
-};
+function setGraphToggleUI() { const b = document.getElementById("graphToggle"); if (b) b.classList.toggle("active", showGraph); }
+{ const gb = document.getElementById("graphToggle");
+  if (gb) gb.onclick = () => {
+    showGraph = !showGraph;
+    localStorage.setItem("ridesim.showGraph", showGraph ? "1" : "0");
+    setGraphToggleUI(); draw();
+  };
+}
 setGraphToggleUI();
 function setPlanToggleUI() { document.getElementById("planToggle").classList.toggle("active", showPlan); }
 document.getElementById("planToggle").onclick = () => {
