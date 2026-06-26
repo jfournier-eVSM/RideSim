@@ -1676,11 +1676,13 @@ function renderSunFooter() {
       if (s.wait > 0) add(s.waitStart, s.waitEnd, insideQ(attr), s.name + " queue", i);
       if (s.ride > 0) add(s.rideStart, s.rideEnd, insideR(attr), s.name, i);
     });
-    segHtml = blocks.map(b => {
+    segHtml = blocks.map((b, i) => {
       const left = (((b.a % DAY) + DAY) % DAY) / DAY * 100, w = (b.b - b.a) / DAY * 100;
       const tip = (b.indoor ? "AC" : "Hot") + " · " + b.label + " · " + minToHM(b.a) + "–" + minToHM(b.b);
+      // 1px black divider between contiguous same-color blocks (none across a color change)
+      const div = (i > 0 && blocks[i - 1].indoor === b.indoor) ? ";border-left:1px solid #000" : "";
       return '<div class="sf-seg" data-step="' + b.step + '" style="left:' + left.toFixed(3) + '%;width:' + Math.max(w, 0.06).toFixed(3) +
-        '%;background:' + (b.indoor ? "var(--accent)" : "#ffcc4d") + '" title="' + esc(tip) + '"></div>';
+        '%;background:' + (b.indoor ? "var(--accent)" : "#ffcc4d") + div + '" title="' + esc(tip) + '"></div>';
     }).join("");
     const d = sunSegments();
     legend = '<span style="color:#ffcc4d">☀️ ' + fmtDur(d.sun) + '</span><span style="color:var(--accent)">❄️ ' + fmtDur(d.ac) + '</span>';
