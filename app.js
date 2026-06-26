@@ -218,6 +218,17 @@ function concatPath(a, b) {
   if (!b || !b.length) return a.slice();
   return a.concat(b.slice(1));
 }
+// Orient a polyline so it runs from the `fromNode` stop to the `toNode` stop,
+// regardless of the order its points were authored in.
+function orientPath(path, fromNode, toNode) {
+  if (!Array.isArray(path) || path.length < 2) return path;
+  const f = nodePt(fromNode), t = nodePt(toNode);
+  const d2 = (a, b) => (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y);
+  const head = path[0], tail = path[path.length - 1];
+  // reverse when the head sits nearer the destination than the source
+  if (d2(head, t) + d2(tail, f) < d2(head, f) + d2(tail, t)) return path.slice().reverse();
+  return path;
+}
 
 // Build transit edges from a line's DIRECTED segments. Each drawn segment is
 // {from, to, minutes, path}; the engine chains segments in their direction so a
@@ -236,8 +247,11 @@ function buildTransitEdges(lines) {
     const segAdj = new Map();
     (line.segments || []).forEach(seg => {
       if (!seg || !state.nodes.has(seg.from) || !state.nodes.has(seg.to)) return;
-      const path = (Array.isArray(seg.path) && seg.path.length >= 2)
+      const raw = (Array.isArray(seg.path) && seg.path.length >= 2)
         ? seg.path.map(p => ({ x: +p.x, y: +p.y })) : [nodePt(seg.from), nodePt(seg.to)];
+      // orient the path to its own from->to so order never matters (a copied/
+      // reversed segment whose geometry wasn't flipped still draws correctly)
+      const path = orientPath(raw, seg.from, seg.to);
       if (!segAdj.has(seg.from)) segAdj.set(seg.from, []);
       segAdj.get(seg.from).push({ to: seg.to, minutes: +seg.minutes || 0, path: path });
     });
