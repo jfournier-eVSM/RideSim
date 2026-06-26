@@ -1655,16 +1655,39 @@ function sunSegments() {
   segs.forEach(x => { if (x.indoor) ac += x.min; else sun += x.min; });
   return { segs: segs, sun: sun, ac: ac };
 }
-function sunBarHtml() {
-  const d = sunSegments();
-  if (!(d.sun + d.ac > 0)) return "";
-  const bar = d.segs.map(x =>
-    '<div style="flex:' + x.min + ' 0 0;background:' + (x.indoor ? "var(--accent)" : "#ffcc4d") + '" title="' +
-    (x.indoor ? "AC " : "Sun ") + fmtDur(x.min) + '"></div>').join("");
-  return '<div class="sun-wrap"><div class="sun-head">' +
-    '<span style="color:#ffcc4d">☀️ Sun ' + fmtDur(d.sun) + '</span>' +
-    '<span style="color:var(--accent)">❄️ AC ' + fmtDur(d.ac) + '</span></div>' +
-    '<div class="sun-bar">' + bar + '</div></div>';
+function hourLabel(h) { const ap = h < 12 ? "a" : "p"; let hh = h % 12; if (hh === 0) hh = 12; return hh + ap; }
+// Full-width sun/AC bar at the bottom, scaled to a 24h day: blocks sit at their
+// real clock time (blank before/after the plan), sun = yellow, AC = blue.
+function renderSunFooter() {
+  const el = document.getElementById("sunFooter"); if (!el) return;
+  const DAY = 1440;
+  let ticks = "", labels = "";
+  for (let h = 0; h <= 24; h += 3) {
+    const left = (h / 24) * 100;
+    ticks += '<div class="sf-tick" style="left:' + left + '%"></div>';
+    if (h < 24) labels += '<div class="sf-lbl" style="left:' + left + '%">' + hourLabel(h) + '</div>';
+  }
+  let segHtml = "", legend = "";
+  if (state.steps.length) {
+    const blocks = [];
+    const add = (a, b, indoor) => { if (b > a) blocks.push({ a: a, b: b, indoor: indoor }); };
+    state.steps.forEach(s => {
+      const attr = state.attractions.get(s.attractionId);
+      add(s.walkStart, s.waitStart, false);                 // travel (walk + transit) = sun
+      if (s.wait > 0) add(s.waitStart, s.waitEnd, insideQ(attr));
+      if (s.ride > 0) add(s.rideStart, s.rideEnd, insideR(attr));
+    });
+    segHtml = blocks.map(b => {
+      const left = (((b.a % DAY) + DAY) % DAY) / DAY * 100, w = (b.b - b.a) / DAY * 100;
+      return '<div class="sf-seg" style="left:' + left.toFixed(3) + '%;width:' + Math.max(w, 0.06).toFixed(3) +
+        '%;background:' + (b.indoor ? "var(--accent)" : "#ffcc4d") + '" title="' +
+        (b.indoor ? "AC " : "Sun ") + minToHM(b.a) + "–" + minToHM(b.b) + '"></div>';
+    }).join("");
+    const d = sunSegments();
+    legend = '<span style="color:#ffcc4d">☀️ ' + fmtDur(d.sun) + '</span><span style="color:var(--accent)">❄️ ' + fmtDur(d.ac) + '</span>';
+  }
+  el.innerHTML = '<div class="sf-track">' + ticks + segHtml + '</div>' +
+    '<div class="sf-axis">' + labels + (legend ? '<div class="sf-legend">' + legend + '</div>' : "") + '</div>';
 }
 function renderSummary() {
   const el = document.getElementById("summary");
@@ -1683,8 +1706,7 @@ function renderSummary() {
     (totTransit > 0 ? '<div class="row"><span style="color:var(--transit)">Transit</span><span>' + fmtDur(totTransit) + '</span></div>' : '') +
     '<div class="row"><span style="color:var(--wait)">Waiting</span><span>' + fmtDur(totWait) + '</span></div>' +
     '<div class="row"><span style="color:var(--ride)">Riding</span><span>' + fmtDur(totRide) + '</span></div>' +
-    '<div class="row"><span>Attractions</span><span>' + state.steps.length + '</span></div>' +
-    sunBarHtml();
+    '<div class="row"><span>Attractions</span><span>' + state.steps.length + '</span></div>';
 }
 
 // Finish-time clock pinned to the top-left of the map (no scrolling to totals).
@@ -1706,6 +1728,7 @@ function refresh() {
   renderTimeline();
   renderSummary();
   updateEndClock();
+  renderSunFooter();
   renderLLPanel();
   draw();
 }

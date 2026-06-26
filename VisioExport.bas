@@ -94,9 +94,10 @@ Attribute VB_Name = "VisioExport"
 '                        Prop.Audio       -> URL/file looped while the avatar is
 '                        at this stop during the animation, written as "audio".
 '                        Prop.QInside     -> true if the QUEUE is indoor/AC.
-'                        Prop.RInside     -> true if the RIDE (or a restaurant/
-'                        dwell) is indoor/AC. Both feed the sun-vs-AC bar; only
-'                        emitted when true (unset/false = outdoor sun).
+'                        Prop.RInside     -> true if the time at this stop is
+'                        indoor/AC (a ride, restaurant, shop, pin, or other
+'                        dwell). Both feed the sun-vs-AC bar; emitted only when
+'                        true (unset/false = outdoor sun).
 '
 ' SCALE BAR (sets real-world walking speed):
 '   Add two shapes named (or mastered) ScaleStart and ScaleEnd and a line
