@@ -490,6 +490,28 @@ function computeGeoTransform(anchors) {
   f.count = pts.length;
   return f;
 }
+/* ---------- Weather: "feels like" from the park's geo centroid ---------- */
+function parkCentroidLatLon() {
+  const a = (SAMPLE.geoAnchors || []).filter(x => x && isFinite(x.lat) && isFinite(x.lon));
+  if (!a.length) return null;
+  return { lat: a.reduce((s, x) => s + x.lat, 0) / a.length, lon: a.reduce((s, x) => s + x.lon, 0) / a.length };
+}
+let weatherTimer = null;
+function fetchWeather() {
+  const el = document.getElementById("feelsTemp"); if (!el) return;
+  const ll = parkCentroidLatLon();
+  if (!ll) { el.style.display = "none"; return; }   // uncalibrated park: no location, no temp
+  const url = "https://api.open-meteo.com/v1/forecast?latitude=" + ll.lat.toFixed(4) +
+    "&longitude=" + ll.lon.toFixed(4) + "&current=apparent_temperature&temperature_unit=fahrenheit";
+  fetch(url, { cache: "no-store" }).then(r => r.json()).then(d => {
+    const t = d && d.current && d.current.apparent_temperature;
+    if (typeof t === "number" && isFinite(t)) {
+      el.style.display = "block";
+      el.innerHTML = '<span class="lbl">feels like</span><span class="tm">' + Math.round(t) + '°</span>';
+    } else el.style.display = "none";
+  }).catch(() => { el.style.display = "none"; });
+}
+
 // Closest node of any kind to a map-pixel point.
 function nearestNodeTo(pt) {
   let best = null, bd = Infinity;
@@ -1611,6 +1633,39 @@ function renderTimeline() {
   });
 }
 
+// Sun (outdoor, yellow) vs AC (indoor, blue) across the day. Walking is always
+// sun; a queue uses qInside, a ride/dwell uses rInside (unset = outdoor).
+function insideQ(a) { return !!(a && a.qInside === true); }
+function insideR(a) { return !!(a && a.rInside === true); }
+function sunSegments() {
+  const segs = [];
+  const push = (min, indoor) => {
+    if (!(min > 0)) return;
+    const last = segs[segs.length - 1];
+    if (last && last.indoor === indoor) last.min += min; else segs.push({ min: min, indoor: indoor });
+  };
+  state.steps.forEach(s => {
+    const a = state.attractions.get(s.attractionId);
+    push(typeof s.walkOnly === "number" ? s.walkOnly : s.walk, false);   // walking: sun
+    push((s.transitRide || 0) + (s.transitBoard || 0), false);           // transit: open-air (default)
+    if (s.wait > 0) push(s.wait, insideQ(a));                            // queue
+    if (s.ride > 0) push(s.ride, insideR(a));                            // ride / dwell
+  });
+  let sun = 0, ac = 0;
+  segs.forEach(x => { if (x.indoor) ac += x.min; else sun += x.min; });
+  return { segs: segs, sun: sun, ac: ac };
+}
+function sunBarHtml() {
+  const d = sunSegments();
+  if (!(d.sun + d.ac > 0)) return "";
+  const bar = d.segs.map(x =>
+    '<div style="flex:' + x.min + ' 0 0;background:' + (x.indoor ? "var(--accent)" : "#ffcc4d") + '" title="' +
+    (x.indoor ? "AC " : "Sun ") + fmtDur(x.min) + '"></div>').join("");
+  return '<div class="sun-wrap"><div class="sun-head">' +
+    '<span style="color:#ffcc4d">☀️ Sun ' + fmtDur(d.sun) + '</span>' +
+    '<span style="color:var(--accent)">❄️ AC ' + fmtDur(d.ac) + '</span></div>' +
+    '<div class="sun-bar">' + bar + '</div></div>';
+}
 function renderSummary() {
   const el = document.getElementById("summary");
   if (!state.steps.length) { el.innerHTML = '<div class="row">Add attractions to see totals.</div>'; return; }
@@ -1628,7 +1683,8 @@ function renderSummary() {
     (totTransit > 0 ? '<div class="row"><span style="color:var(--transit)">Transit</span><span>' + fmtDur(totTransit) + '</span></div>' : '') +
     '<div class="row"><span style="color:var(--wait)">Waiting</span><span>' + fmtDur(totWait) + '</span></div>' +
     '<div class="row"><span style="color:var(--ride)">Riding</span><span>' + fmtDur(totRide) + '</span></div>' +
-    '<div class="row"><span>Attractions</span><span>' + state.steps.length + '</span></div>';
+    '<div class="row"><span>Attractions</span><span>' + state.steps.length + '</span></div>' +
+    sunBarHtml();
 }
 
 // Finish-time clock pinned to the top-left of the map (no scrolling to totals).
@@ -2649,5 +2705,7 @@ function init() {
   // one live feed (ThemeParks.wiki) powers waits + LL; fetch once attractions exist
   fetchLive();
   if (liveOn()) startLiveRefresh();
+  fetchWeather();                                   // "feels like" pill (geo-calibrated parks)
+  weatherTimer = setInterval(fetchWeather, 30 * 60 * 1000);
 }
 init();
