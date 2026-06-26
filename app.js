@@ -2213,14 +2213,21 @@ function planLink() {
   u.searchParams.delete("t");         // drop any cache-buster
   return u.toString();
 }
-// Share button: native share sheet on mobile, else copy the link to the clipboard.
+// Share button: native share sheet on mobile (where it's reliable), else copy
+// the link. Desktop Chrome can crash the renderer on navigator.share, so it's
+// gated to touch/mobile devices only and never used on desktop.
 function shareLink() {
   if (!state.sequence.length) { alert("Add some stops to your plan first."); return; }
   const url = planLink();
   const btn = document.getElementById("shareBtn");
-  if (navigator.share) {
-    navigator.share({ title: SAMPLE.meta.name + " — Day Plan", url: url }).catch(() => {});
-    return;
+  const data = { title: SAMPLE.meta.name + " — Day Plan", url: url };
+  const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) && navigator.maxTouchPoints > 0;
+  if (mobile && navigator.share && (!navigator.canShare || navigator.canShare(data))) {
+    try {
+      const p = navigator.share(data);
+      if (p && p.catch) p.catch(() => {});
+      return;
+    } catch (e) { /* fall through to copy */ }
   }
   copyText(url, () => flashBtn(btn, "✓ Link copied"));
 }
