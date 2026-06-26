@@ -1670,18 +1670,18 @@ function renderSunFooter() {
   let segHtml = "", legend = "";
   if (state.steps.length) {
     const blocks = [];
-    const add = (a, b, indoor) => { if (b > a) blocks.push({ a: a, b: b, indoor: indoor }); };
+    const add = (a, b, indoor, label) => { if (b > a) blocks.push({ a: a, b: b, indoor: indoor, label: label }); };
     state.steps.forEach(s => {
       const attr = state.attractions.get(s.attractionId);
-      add(s.walkStart, s.waitStart, false);                 // travel (walk + transit) = sun
-      if (s.wait > 0) add(s.waitStart, s.waitEnd, insideQ(attr));
-      if (s.ride > 0) add(s.rideStart, s.rideEnd, insideR(attr));
+      add(s.walkStart, s.waitStart, false, "Walk to " + s.name);          // travel (walk + transit) = hot
+      if (s.wait > 0) add(s.waitStart, s.waitEnd, insideQ(attr), s.name + " queue");
+      if (s.ride > 0) add(s.rideStart, s.rideEnd, insideR(attr), s.name);
     });
     segHtml = blocks.map(b => {
       const left = (((b.a % DAY) + DAY) % DAY) / DAY * 100, w = (b.b - b.a) / DAY * 100;
+      const tip = (b.indoor ? "AC" : "Hot") + " · " + b.label + " · " + minToHM(b.a) + "–" + minToHM(b.b);
       return '<div class="sf-seg" style="left:' + left.toFixed(3) + '%;width:' + Math.max(w, 0.06).toFixed(3) +
-        '%;background:' + (b.indoor ? "var(--accent)" : "#ffcc4d") + '" title="' +
-        (b.indoor ? "AC " : "Sun ") + minToHM(b.a) + "–" + minToHM(b.b) + '"></div>';
+        '%;background:' + (b.indoor ? "var(--accent)" : "#ffcc4d") + '" title="' + esc(tip) + '"></div>';
     }).join("");
     const d = sunSegments();
     legend = '<span style="color:#ffcc4d">☀️ ' + fmtDur(d.sun) + '</span><span style="color:var(--accent)">❄️ ' + fmtDur(d.ac) + '</span>';
