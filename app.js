@@ -747,6 +747,7 @@ let hoverAttr = null; // attraction id whose label is shown on map hover
 let labelHit = null;  // screen rect of the shown hover label (click/tap to add)
 let showPlan = localStorage.getItem("ridesim.showPlan") === "1"; // highlight the day's route
 let hoverStep = null; // step index whose walk segment is hovered (shows dist/time)
+let selectedStep = null; // step index selected by tapping its sequence-list item
 // One live source — ThemeParks.wiki — powers both standby waits and Lightning Lane.
 let showLiveWaits = localStorage.getItem("ridesim.liveWaits") === "1"; // standby wait overlay
 let showLL = localStorage.getItem("ridesim.ll") === "1";               // Lightning Lane overlay
@@ -1036,6 +1037,18 @@ function draw(marker) {
   if (hoverAttr) {
     const a = state.attractions.get(hoverAttr);
     if (a) drawAttrLabel(a);
+  }
+
+  // selected sequence stop: gold walk-to leg + a ring on its attraction
+  if (selectedStep !== null && state.steps[selectedStep]) {
+    const s = state.steps[selectedStep];
+    drawPath(s.routeCoords, "rgba(255,204,77,0.95)", 4, false);
+    const a = state.attractions.get(s.attractionId);
+    const loc = a && (a.displayLocation || state.nodes.get(a.entranceNodeId));
+    if (loc) {
+      ctx.beginPath(); ctx.arc(tx(loc.x), ty(loc.y), attrSize().r + 6, 0, 7);
+      ctx.lineWidth = 2.5; ctx.strokeStyle = "#ffcc4d"; ctx.stroke();
+    }
   }
 
   // marker
@@ -1503,6 +1516,22 @@ function wireSeqDrag(div, i) {
     state.sequence.splice(i, 0, m);
     dragIdx = null; refresh();
   });
+  div.addEventListener("click", () => selectStep(i));   // tap a stop to highlight its leg + marker
+}
+// Select (or toggle off) a sequence stop: highlights its walk-to leg and
+// attraction on the map, and marks its list row.
+function selectStep(i) {
+  selectedStep = (selectedStep === i) ? null : i;
+  document.querySelectorAll("#seqList .seq-item.selected").forEach(x => x.classList.remove("selected"));
+  if (selectedStep !== null) {
+    const item = document.querySelector('#seqList .seq-item[data-idx="' + selectedStep + '"]');
+    if (item) item.classList.add("selected");
+  }
+  draw();
+}
+function clearSelection() {
+  selectedStep = null;
+  document.querySelectorAll("#seqList .seq-item.selected").forEach(x => x.classList.remove("selected"));
 }
 // Prompt for a new 1-based position and move the item there (touch-friendly).
 function moveSeqItem(i) {
@@ -1602,6 +1631,7 @@ function updateEndClock() {
 
 /* ---------- Master refresh ---------------------------------------------- */
 function refresh() {
+  selectedStep = null;   // the list is about to rebuild; drop any tap-selection
   computeSequence();
   renderAttrList();
   renderSeq();
@@ -1641,6 +1671,7 @@ function simSpanMin() {
 
 function play() {
   if (!state.steps.length) return;
+  clearSelection();   // drop any tap-selection highlight before animating
   playing = true;
   document.getElementById("playBtn").textContent = "⏸ Pause";
   if (animClock >= simSpanMin() - 0.001) animClock = 0;

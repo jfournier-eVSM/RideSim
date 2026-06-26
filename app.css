@@ -197,6 +197,8 @@
   }
   .seq-item.dragging { opacity: .4; }
   .seq-item.drop-target { border-color: var(--accent); }
+  /* tapped stop — highlights its leg + marker on the map */
+  .seq-item.selected { border-color: var(--accent2); box-shadow: inset 3px 0 0 var(--accent2); }
   /* current stop during animation */
   .seq-item.active {
     background: rgba(92,200,255,0.16); border-color: var(--accent);
