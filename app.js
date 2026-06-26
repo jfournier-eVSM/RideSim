@@ -741,7 +741,8 @@ function attrSize() {
 // Background image placed in map space via an independent transform
 // (scale + offset), so any-resolution image can be aligned to the nodes.
 // Persisted to localStorage so alignment survives a refresh.
-const bg = Object.assign({ scale: 1, offX: 0, offY: 0, opacity: 1 }, loadBg());
+// Map alignment (scale/offset) persists; opacity is pinned to full (slider removed).
+const bg = Object.assign({ scale: 1, offX: 0, offY: 0 }, loadBg(), { opacity: 1 });
 let showGraph = localStorage.getItem("ridesim.showGraph") === "1"; // node/edge network (off by default; toggle removed)
 let hoverAttr = null; // attraction id whose label is shown on map hover
 let labelHit = null;  // screen rect of the shown hover label (click/tap to add)
