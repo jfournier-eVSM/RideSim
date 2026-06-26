@@ -765,7 +765,7 @@ Private Function BuildGeoJson(pg As Visio.Page, ByRef cnt As Long) As String
     cnt = 0
     Dim out As String, shp As Visio.Shape
     For Each shp In pg.Shapes
-        Dim raw As String: raw = Trim$(PropStr(shp, "LatLon"))
+        Dim raw As String: raw = Trim$(LatLonOf(shp))
         If raw <> "" Then
             Dim parts() As String: parts = Split(raw, ",")
             If UBound(parts) >= 1 Then
@@ -785,6 +785,29 @@ Private Function BuildGeoJson(pg As Visio.Page, ByRef cnt As Long) As String
             End If
         End If
     Next shp
+End Function
+
+' "lat,lon" from Shape Data. Tries the internal name first, then the visible
+' LABEL (a typed LatLon field usually gets an auto internal name like Prop.Row_1).
+Private Function LatLonOf(shp As Visio.Shape) As String
+    On Error Resume Next
+    Dim names As Variant: names = Array("LatLon", "LatLong", "LatLng", "GPS")
+    Dim i As Long, Row As Long, vstr As String
+    For i = LBound(names) To UBound(names)
+        If shp.CellExistsU("Prop." & names(i), 0) Then
+            vstr = Trim$(shp.CellsU("Prop." & names(i)).ResultStr(""))
+            If vstr <> "" Then LatLonOf = vstr: Exit Function
+        End If
+    Next i
+    For Row = 0 To shp.RowCount(visSectionProp) - 1
+        Dim lbl As String: lbl = shp.CellsSRC(visSectionProp, Row, 2).ResultStr(visNone)
+        For i = LBound(names) To UBound(names)
+            If lbl Like names(i) Then
+                vstr = Trim$(shp.CellsSRC(visSectionProp, Row, 0).ResultStr(""))
+                If vstr <> "" Then LatLonOf = vstr: Exit Function
+            End If
+        Next i
+    Next Row
 End Function
 
 ' Signed decimal parse (ParseNum drops the sign, which breaks W lon / S lat).
