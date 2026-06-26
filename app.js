@@ -2210,7 +2210,36 @@ function planLink() {
   const u = new URL(location.href);
   u.searchParams.set("plan", planToParam());
   u.searchParams.delete("pretend");   // never bake a test location into a shared link
+  u.searchParams.delete("t");         // drop any cache-buster
   return u.toString();
+}
+// Share button: native share sheet on mobile, else copy the link to the clipboard.
+function shareLink() {
+  if (!state.sequence.length) { alert("Add some stops to your plan first."); return; }
+  const url = planLink();
+  const btn = document.getElementById("shareBtn");
+  if (navigator.share) {
+    navigator.share({ title: SAMPLE.meta.name + " — Day Plan", url: url }).catch(() => {});
+    return;
+  }
+  copyText(url, () => flashBtn(btn, "✓ Link copied"));
+}
+function copyText(text, onOk) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(onOk || function () {}, () => fallbackCopy(text, onOk));
+  } else fallbackCopy(text, onOk);
+}
+function fallbackCopy(text, onOk) {
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.left = "-9999px";
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try { document.execCommand("copy"); } catch (e) {}
+  document.body.removeChild(ta); if (onOk) onOk();
+}
+function flashBtn(btn, label) {
+  if (!btn) return;
+  const o = btn.textContent; btn.textContent = label;
+  setTimeout(() => { btn.textContent = o; }, 1600);
 }
 // Apply a "?plan=" value to the start time + sequence. Returns true if present.
 function loadPlanParam() {
@@ -2343,6 +2372,7 @@ function captureClear() {
 document.getElementById("playBtn").onclick = () => { playing ? pause() : play(); };
 document.getElementById("stopBtn").onclick = stop;
 document.getElementById("exportBtn").onclick = exportPlan;
+{ const sb = document.getElementById("shareBtn"); if (sb) sb.onclick = shareLink; }
 document.getElementById("clearSeq").onclick = () => { state.sequence = []; stop(); refresh(); };
 // "Paste" opens the data modal focused on the Plan tab (a copy/paste surface).
 document.getElementById("pasteBtn").onclick = () => {
