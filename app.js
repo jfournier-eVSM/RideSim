@@ -1590,6 +1590,16 @@ function renderSummary() {
     '<div class="row"><span>Attractions</span><span>' + state.steps.length + '</span></div>';
 }
 
+// Finish-time clock pinned to the top-left of the map (no scrolling to totals).
+function updateEndClock() {
+  const el = document.getElementById("endClock");
+  if (!el) return;
+  if (!state.steps.length) { el.style.display = "none"; return; }
+  const finish = state.steps[state.steps.length - 1].rideEnd;
+  el.style.display = "block";
+  el.innerHTML = '<div class="lbl">ends</div><div class="tm">' + t12(finish) + '</div>';
+}
+
 /* ---------- Master refresh ---------------------------------------------- */
 function refresh() {
   computeSequence();
@@ -1597,6 +1607,7 @@ function refresh() {
   renderSeq();
   renderTimeline();
   renderSummary();
+  updateEndClock();
   renderLLPanel();
   draw();
 }
