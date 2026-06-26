@@ -2481,6 +2481,7 @@ function pastePlanFromClipboard() {
     navigator.clipboard.readText().then(text => {
       if (!text || !text.trim()) { openPlanModal(); return; }
       const r = parsePlan(text);
+      if (!r.seq.length) { openPlanModal(); return; }   // clipboard wasn't a plan -> manual paste box
       state.sequence = r.seq; stop(); refresh();
       if (r.unmatched.length) alert("Loaded " + r.seq.length + " stop(s). Couldn't match:\n" + r.unmatched.join("\n"));
       else flashBtn(btn, "✓ Loaded " + r.seq.length);
