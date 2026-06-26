@@ -34,11 +34,12 @@ function attrCat(a) {
   const c = a && a.category;
   return CATEGORIES.indexOf(c) >= 0 ? c : "ride";
 }
-// Dwell minutes for a non-ride stop. "other" defaults to 5 when unset; the user
-// can override it (including to 0). The other categories default to 0.
+// Dwell minutes for a non-ride stop. "other" and "pin" default to 5 when unset;
+// the user can override it (including to 0). Other categories default to 0.
 function attrDuration(a) {
   if (a && typeof a.rideDuration === "number") return a.rideDuration;
-  return attrCat(a) === "other" ? 5 : 0;
+  const c = attrCat(a);
+  return (c === "other" || c === "pin") ? 5 : 0;
 }
 // Closed = not open at the park today; shown as a flat gray circle.
 function attrClosed(a) { return !!(a && a.closed); }
@@ -1450,9 +1451,9 @@ function renderSeq() {
     const div = document.createElement("div");
     div.className = "seq-item"; div.draggable = true; div.dataset.idx = i;
     const cat = a ? attrCat(a) : "ride";
-    // editable field: dwell time for shops/restaurants/restrooms/other, wait for rides
+    // editable field: dwell time for shops/restaurants/restrooms/pins/other, wait for rides
     let fieldHtml = "";
-    if (a && (cat === "restaurant" || cat === "shop" || cat === "restroom" || cat === "other")) {
+    if (a && (cat === "restaurant" || cat === "shop" || cat === "restroom" || cat === "other" || cat === "pin")) {
       fieldHtml = '<input class="dur" data-kind="dur" type="number" min="0" step="5" inputmode="numeric" value="' + attrDuration(a) + '" title="Minutes you\'ll spend here"><span class="durunit">min</span>';
     } else if (a && cat === "ride") {
       const step = (state.steps[i] && state.steps[i].attractionId === id) ? state.steps[i] : null;
