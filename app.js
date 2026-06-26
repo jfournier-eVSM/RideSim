@@ -1533,15 +1533,16 @@ function clearSelection() {
   selectedStep = null;
   document.querySelectorAll("#seqList .seq-item.selected").forEach(x => x.classList.remove("selected"));
 }
-// Move the selected stop up/down the sequence (delta -1 / +1), keeping it selected.
-function moveSelected(delta) {
+// Move the selection to the previous/next stop (delta -1 / +1).
+function moveSelection(delta) {
   if (selectedStep === null) return;
-  const i = selectedStep, j = i + delta;
+  const j = selectedStep + delta;
   if (j < 0 || j >= state.sequence.length) return;
-  const m = state.sequence.splice(i, 1)[0];
-  state.sequence.splice(j, 0, m);
-  refresh();        // rebuilds the list (clears selection)...
-  selectStep(j);    // ...then re-select the moved stop at its new spot
+  selectedStep = j;
+  document.querySelectorAll("#seqList .seq-item.selected").forEach(x => x.classList.remove("selected"));
+  const item = document.querySelector('#seqList .seq-item[data-idx="' + j + '"]');
+  if (item) { item.classList.add("selected"); item.scrollIntoView({ block: "nearest" }); }
+  draw();
 }
 // Prompt for a new 1-based position and move the item there (touch-friendly).
 function moveSeqItem(i) {
@@ -2302,13 +2303,14 @@ document.getElementById("pasteBtn").onclick = () => {
   if (ta) { ta.focus(); ta.select(); }
 };
 document.getElementById("startTime").onchange = () => { stop(); refresh(); };
-// With a sequence stop selected, Up/Down arrows reorder it (ignored while typing).
+// With a sequence stop selected, Up/Down arrows move to the prev/next stop
+// (ignored while typing in a field).
 document.addEventListener("keydown", (e) => {
   if (selectedStep === null) return;
   const t = e.target;
   if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
-  if (e.key === "ArrowUp") { e.preventDefault(); moveSelected(-1); }
-  else if (e.key === "ArrowDown") { e.preventDefault(); moveSelected(1); }
+  if (e.key === "ArrowUp") { e.preventDefault(); moveSelection(-1); }
+  else if (e.key === "ArrowDown") { e.preventDefault(); moveSelection(1); }
 });
 function setStartNow() {
   const d = new Date();
