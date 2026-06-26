@@ -13,6 +13,7 @@
     <label class="ctl">Start <input type="time" id="startTime" value="09:00">
       <button id="nowBtn" title="Set start to the current time">Now</button></label>
     <label class="ctl">From <select id="startLoc" title="Where you are right now — the day starts here"></select></label>
+    <button id="geoBtn" style="display:none" title="Show your GPS location and start from the nearest node">📍 Me</button>
     <label class="ctl" style="display:none">ft/px <input type="number" id="ftPerPx" value="4" min="0.1" step="0.5" title="Feet per pixel — scales walk distance"></label>
     <label class="ctl" id="mapOpacityCtl">Map <input type="range" id="bgOpacity" min="0" max="100" value="100" style="width:70px" title="Background image opacity"></label>
     <button id="bgAdjustBtn" style="display:none" title="Drag to move the map, scroll to scale it, to align it with the nodes">⤢ Align Map</button>

@@ -780,6 +780,12 @@ SAMPLE.transport = [
 ];
 // @RIDESIM:TRANSPORT:END
 
+// Geo anchors for GPS: shapes carrying Prop.LatLon, as { x, y, lat, lon } (>=3
+// to calibrate). Lets the planner place your live location on the map image.
+// @RIDESIM:GEO:START
+SAMPLE.geoAnchors = [];
+// @RIDESIM:GEO:END
+
 // Wait times TSV — hourly points, code interpolates between them.
 SAMPLE.waitsTSV = (function () {
   const profile = {

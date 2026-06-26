@@ -447,8 +447,101 @@ function nearestAccess(from, ids) {
 }
 
 /* ---------- Sequence simulation ----------------------------------------- */
+/* ---------- Geolocation: GPS -> map pixels via anchor calibration ------- */
+// SAMPLE.geoAnchors = [{x, y, lat, lon}, ...] (>=3 shapes carrying Prop.LatLon).
+// We fit an affine map (lon,lat)->(x,y) — handles the map's rotation/scale/skew.
+let geoXform = null;          // function(lon, lat) -> {x, y}, or null if uncalibrated
+let geoActive = false, geoWatchId = null, myLocation = null, geoStartNode = null;
+
+function solve3(M, b) {       // Gaussian elimination on a 3x3 system
+  const a = [[M[0][0], M[0][1], M[0][2], b[0]], [M[1][0], M[1][1], M[1][2], b[1]], [M[2][0], M[2][1], M[2][2], b[2]]];
+  for (let i = 0; i < 3; i++) {
+    let p = i;
+    for (let r = i + 1; r < 3; r++) if (Math.abs(a[r][i]) > Math.abs(a[p][i])) p = r;
+    if (Math.abs(a[p][i]) < 1e-12) return null;
+    const tmp = a[i]; a[i] = a[p]; a[p] = tmp;
+    for (let r = 0; r < 3; r++) {
+      if (r === i) continue;
+      const f = a[r][i] / a[i][i];
+      for (let c = i; c < 4; c++) a[r][c] -= f * a[i][c];
+    }
+  }
+  return [a[0][3] / a[0][0], a[1][3] / a[1][1], a[2][3] / a[2][2]];
+}
+// Least-squares affine fit from anchors. Centered on the mean lon/lat for
+// numerical conditioning (lon/lat magnitudes dwarf the constant term otherwise).
+function computeGeoTransform(anchors) {
+  const pts = (anchors || []).filter(a => a && [a.x, a.y, a.lat, a.lon].every(v => typeof v === "number" && isFinite(v)));
+  if (pts.length < 3) return null;
+  const lon0 = pts.reduce((s, a) => s + a.lon, 0) / pts.length;
+  const lat0 = pts.reduce((s, a) => s + a.lat, 0) / pts.length;
+  let Suu = 0, Svv = 0, Suv = 0, Su = 0, Sv = 0, Sux = 0, Svx = 0, Sx = 0, Suy = 0, Svy = 0, Sy = 0;
+  pts.forEach(a => {
+    const u = a.lon - lon0, v = a.lat - lat0;
+    Suu += u * u; Svv += v * v; Suv += u * v; Su += u; Sv += v;
+    Sux += u * a.x; Svx += v * a.x; Sx += a.x; Suy += u * a.y; Svy += v * a.y; Sy += a.y;
+  });
+  const M = [[Suu, Suv, Su], [Suv, Svv, Sv], [Su, Sv, pts.length]];
+  const cx = solve3(M, [Sux, Svx, Sx]), cy = solve3(M, [Suy, Svy, Sy]);
+  if (!cx || !cy) return null;
+  const f = (lon, lat) => ({ x: cx[0] * (lon - lon0) + cx[1] * (lat - lat0) + cx[2],
+                             y: cy[0] * (lon - lon0) + cy[1] * (lat - lat0) + cy[2] });
+  f.count = pts.length;
+  return f;
+}
+// Closest node of any kind to a map-pixel point.
+function nearestNodeTo(pt) {
+  let best = null, bd = Infinity;
+  state.nodes.forEach((n, id) => { const d = (n.x - pt.x) * (n.x - pt.x) + (n.y - pt.y) * (n.y - pt.y); if (d < bd) { bd = d; best = id; } });
+  return best;
+}
+function geoBtnEl() { return document.getElementById("geoBtn"); }
+function refreshGeoBtn() {
+  const b = geoBtnEl(); if (!b) return;
+  b.style.display = geoXform ? "" : "none";   // only offered for geo-calibrated parks
+  b.classList.toggle("active", geoActive);
+}
+function onGeoFix(pos) {
+  if (!geoXform) return;
+  const c = pos.coords, p = geoXform(c.longitude, c.latitude);
+  myLocation = { x: p.x, y: p.y, accM: c.accuracy };
+  const nn = nearestNodeTo(p);
+  if (nn !== geoStartNode) { geoStartNode = nn; if (!playing) refresh(); }   // re-route only when the snapped node changes
+  draw();
+}
+function toggleGeo() {
+  if (geoActive) { stopGeo(); return; }
+  if (!geoXform) { alert("This park isn't geo-calibrated yet (needs Prop.LatLon on 3+ shapes)."); return; }
+  if (!navigator.geolocation) { alert("Geolocation isn't available in this browser."); return; }
+  geoActive = true; refreshGeoBtn();
+  geoWatchId = navigator.geolocation.watchPosition(onGeoFix,
+    e => { stopGeo(); alert("Couldn't get your location: " + e.message); },
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+}
+function stopGeo() {
+  if (geoWatchId != null) { try { navigator.geolocation.clearWatch(geoWatchId); } catch (e) {} }
+  geoWatchId = null; geoActive = false; myLocation = null; geoStartNode = null;
+  refreshGeoBtn(); if (!playing) refresh();
+}
+function drawMyLocation() {
+  if (!myLocation) return;
+  const X = tx(myLocation.x), Y = ty(myLocation.y);
+  if (myLocation.accM > 0) {       // accuracy ring (meters -> map px via the park scale)
+    const rPx = (myLocation.accM * 3.28084 / ftPerPx()) * view.scale;
+    if (rPx > 4) {
+      ctx.beginPath(); ctx.arc(X, Y, rPx, 0, 7);
+      ctx.fillStyle = "rgba(66,133,244,0.12)"; ctx.fill();
+      ctx.lineWidth = 1; ctx.strokeStyle = "rgba(66,133,244,0.35)"; ctx.stroke();
+    }
+  }
+  ctx.beginPath(); ctx.arc(X, Y, 7, 0, 7);
+  ctx.fillStyle = "#4285f4"; ctx.fill();
+  ctx.lineWidth = 2.5; ctx.strokeStyle = "#fff"; ctx.stroke();
+}
+
 let startOverride = null;   // node id chosen in the "From" dropdown, else null
 function startNode() {
+  if (geoActive && geoStartNode && state.nodes.has(geoStartNode)) return geoStartNode;  // "start from where I am"
   if (startOverride && state.nodes.has(startOverride)) return startOverride;  // "I'm here"
   if (state.nodes.has("start")) return "start";   // a node named "Start" in Visio
   if (state.nodes.has("begin")) return "begin";
@@ -938,6 +1031,7 @@ function draw(marker) {
     ctx.beginPath(); ctx.arc(tx(marker.x), ty(marker.y), 11 * ms, 0, 7);
     ctx.strokeStyle = marker.stroke || "#5cc8ff"; ctx.globalAlpha = .4; ctx.stroke(); ctx.globalAlpha = 1;
   }
+  drawMyLocation();   // "you are here" GPS dot, on top
 }
 function drawPath(coords, color, lw, bright) {
   if (!coords || coords.length < 2) return;
@@ -2103,6 +2197,7 @@ function setStartNow() {
 }
 document.getElementById("nowBtn").onclick = () => { setStartNow(); stop(); refresh(); };
 document.getElementById("startLoc").onchange = (e) => { startOverride = resolveStartNode(e.target.value); stop(); refresh(); };
+{ const gb = document.getElementById("geoBtn"); if (gb) gb.onclick = toggleGeo; }
 document.getElementById("ftPerPx").onchange = () => { stop(); refresh(); };
 document.getElementById("bgOpacity").value = Math.round(bg.opacity * 100);
 document.getElementById("bgOpacity").oninput = (e) => {
@@ -2312,6 +2407,8 @@ function loadSample() {
     document.getElementById("ftPerPx").value = Math.round(SAMPLE.feetPerPixel * 1000) / 1000;
   }
   state.sequence = [];
+  geoXform = computeGeoTransform(SAMPLE.geoAnchors);   // GPS calibration, if the park has anchors
+  refreshGeoBtn();
   applyMapExtent();
 }
 function init() {
