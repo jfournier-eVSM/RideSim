@@ -1930,7 +1930,7 @@ function exportPlan() {
   const totFt = state.steps.reduce((a, x) => a + stepFeet(x.distPx), 0);
   const finish = state.steps[state.steps.length - 1].rideEnd;
 
-  const html = itineraryHtml(startMin, finish, totWalk, totWait, totRide, totFt, planText());
+  const html = itineraryHtml(startMin, finish, totWalk, totWait, totRide, totFt, planText(), planLink());
   const w = window.open("", "_blank");
   if (w) { w.document.open(); w.document.write(html); w.document.close(); }
   else download("mk-itinerary.html", html, "text/html");   // popup blocked -> save instead
@@ -1945,7 +1945,7 @@ function t12(min) {
 }
 const CAT_ICON = { ride: "🎢", restaurant: "🍽", shop: "🛍", pin: "📍", restroom: "🚻", other: "⏱", transit: "🚂" };
 // A clean, printable HTML day plan (own document so print/Save-PDF is native).
-function itineraryHtml(startMin, finish, totWalk, totWait, totRide, totFt, planStr) {
+function itineraryHtml(startMin, finish, totWalk, totWait, totRide, totFt, planStr, linkStr) {
   const steps = state.steps.map((s, i) => {
     const ic = CAT_ICON[s.category] || "🎢";
     const warn = s.reachable ? "" : ' <span class="warn">no path</span>';
@@ -1992,10 +1992,12 @@ function itineraryHtml(startMin, finish, totWalk, totWait, totRide, totFt, planS
     '<h1>' + SAMPLE.meta.emoji + ' ' + SAMPLE.meta.name + ' — Day Plan</h1>' +
     '<p class="sub">Starts ' + t12(startMin) + ' · ' + state.steps.length + ' stops · finishes ' + t12(finish) + '</p>' +
     '<div class="btns"><button class="pri" onclick="window.print()">🖨 Print / Save PDF</button>' +
+    '<button id="linkbtn" onclick="copyLink()">🔗 Copy link</button>' +
     '<button id="copybtn" onclick="copyPlan()">📋 Copy plan</button></div>' +
     steps + totals +
     '<textarea id="plansrc" readonly style="position:absolute;left:-9999px;top:0">' + esc(planStr) + '</textarea>' +
-    '</div><script>function copyPlan(){var t=document.getElementById("plansrc");t.focus();t.select();t.setSelectionRange(0,99999);try{document.execCommand("copy");}catch(e){}if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t.value);}var b=document.getElementById("copybtn"),o=b.textContent;b.textContent="\\u2713 Copied — paste into Data \\u25b8 Plan";setTimeout(function(){b.textContent=o;},1800);}</script></body></html>';
+    '<textarea id="linksrc" readonly style="position:absolute;left:-9999px;top:0">' + esc(linkStr || "") + '</textarea>' +
+    '</div><script>function copyFrom(srcId,btnId,label){var t=document.getElementById(srcId);t.focus();t.select();t.setSelectionRange(0,99999);try{document.execCommand("copy");}catch(e){}if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t.value);}var b=document.getElementById(btnId),o=b.textContent;b.textContent=label;setTimeout(function(){b.textContent=o;},1800);}function copyPlan(){copyFrom("plansrc","copybtn","\\u2713 Copied — paste into Data \\u25b8 Plan");}function copyLink(){copyFrom("linksrc","linkbtn","\\u2713 Link copied");}</script></body></html>';
 }
 function download(name, content, type) {
   const blob = new Blob([content], { type });
@@ -2185,6 +2187,54 @@ function applyPlan() {
     msg.className = "ok";
     msg.textContent = "✓ Loaded plan — " + r.seq.length + " stop(s).";
   }
+}
+/* ---------- Plan in the URL (shareable links) --------------------------- */
+// Compact "?plan=" value: start time + ids, e.g. "s0830,big_thunder,pirates*35,
+// @transit:railroad>fantasyland_station". A leading "s" tags the start; "*N"
+// carries a stop's entered time (ride wait override / dwell minutes).
+function planToParam() {
+  const startMin = hmToMin(document.getElementById("startTime").value || "09:00");
+  const parts = ["s" + minToHM(startMin).replace(":", "")];
+  state.sequence.forEach(id => {
+    if (isTransitToken(id)) { parts.push(id); return; }
+    const a = state.attractions.get(id);
+    if (!a) { parts.push(id); return; }
+    let tok = id;
+    if (attrCat(a) === "ride") { if (typeof a.waitOverride === "number") tok += "*" + a.waitOverride; }
+    else { const d = attrDuration(a); if (d > 0) tok += "*" + d; }
+    parts.push(tok);
+  });
+  return parts.join(",");
+}
+function planLink() {
+  const u = new URL(location.href);
+  u.searchParams.set("plan", planToParam());
+  u.searchParams.delete("pretend");   // never bake a test location into a shared link
+  return u.toString();
+}
+// Apply a "?plan=" value to the start time + sequence. Returns true if present.
+function loadPlanParam() {
+  const v = new URLSearchParams(location.search).get("plan");
+  if (!v) return false;
+  const parts = v.split(",").filter(Boolean);
+  let i = 0;
+  const sm = parts[0] && parts[0].match(/^s(\d{2})(\d{2})$/);   // s0830 -> start 08:30
+  if (sm) { const inp = document.getElementById("startTime"); if (inp) inp.value = sm[1] + ":" + sm[2]; i = 1; }
+  const seq = [];
+  for (; i < parts.length; i++) {
+    const p = parts[i];
+    if (isTransitToken(p)) { seq.push(p); continue; }
+    const star = p.indexOf("*");
+    const id = star >= 0 ? p.slice(0, star) : p;
+    if (!state.attractions.has(id)) continue;
+    seq.push(id);
+    if (star >= 0) {
+      const mins = parseInt(p.slice(star + 1), 10);
+      if (isFinite(mins)) { const a = state.attractions.get(id); if (attrCat(a) === "ride") a.waitOverride = mins; else a.rideDuration = mins; }
+    }
+  }
+  state.sequence = seq;
+  return true;
 }
 function autoDetectAndFill(text, filename) {
   const t = text.trim();
@@ -2537,6 +2587,7 @@ function init() {
   applyParkMeta();        // browser tab + header from SAMPLE.meta
   loadSample();
   setStartNow();          // default the day to the current time
+  loadPlanParam();        // a shared "?plan=" link overrides start + sequence
   resizeCanvas();
   refresh();
   // one live feed (ThemeParks.wiki) powers waits + LL; fetch once attractions exist
