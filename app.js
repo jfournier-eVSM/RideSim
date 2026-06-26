@@ -2035,7 +2035,18 @@ function planText() {
       return "🚂 " + nm + (p.alight ? " → " + stopName(p.alight) : "");
     }
     const a = state.attractions.get(id);
-    return a ? a.name : id;
+    if (!a) return id;
+    // append the user-relevant time as a trailing " - <n>m" (end-anchored so it
+    // never collides with a " - " inside a name): rides emit only an explicit
+    // wait override; dwell stops emit their dwell minutes.
+    let line = a.name;
+    if (attrCat(a) === "ride") {
+      if (typeof a.waitOverride === "number") line += " - " + a.waitOverride + "m";
+    } else {
+      const d = attrDuration(a);
+      if (d > 0) line += " - " + d + "m";
+    }
+    return line;
   }).join("\n");
 }
 // Parse a pasted name list back into a sequence; returns { seq, unmatched }.
@@ -2057,8 +2068,13 @@ function parsePlan(text) {
   (state.transport || []).forEach(l => lineByName.set(normName(l.name || l.id), l));
   const seq = [], unmatched = [];
   String(text || "").split(/\r?\n/).forEach(raw => {
-    const line = raw.trim();
+    let line = raw.trim();
     if (!line) return;
+    // pull a trailing " - <n>m" time off the end (the dash is a delimiter, so it
+    // must end in digits+m — a " - " inside a name won't match).
+    let mins = null;
+    const tm = line.match(/\s+-\s+(\d+)\s*m\s*$/i);
+    if (tm) { mins = parseInt(tm[1], 10); line = line.slice(0, tm.index).trim(); }
     const marked = /^🚂/.test(line);
     const body = line.replace(/^🚂\s*/, "").trim();
     const parts = body.split(/\s*(?:→|->)\s*/);
@@ -2071,7 +2087,14 @@ function parsePlan(text) {
       return;
     }
     const aid = matchAttr(head) || matchAttr(body);
-    if (aid) { seq.push(aid); return; }
+    if (aid) {
+      seq.push(aid);
+      if (mins != null) {              // apply the entered time to the matched stop
+        const a = state.attractions.get(aid);
+        if (attrCat(a) === "ride") a.waitOverride = mins; else a.rideDuration = mins;
+      }
+      return;
+    }
     if (tline) { seq.push(transitTokenFor(tline.id, null)); return; }   // bare line name
     unmatched.push(line);
   });
