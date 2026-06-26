@@ -72,6 +72,10 @@ Attribute VB_Name = "VisioExport"
 ' OPTIONAL SHAPE DATA (Shape Data / Custom Properties) - all override the above:
 '   On any shape:        Prop.ID          -> use this exact id instead of auto
 '                        Prop.Name        -> JSON "name" (else omitted for nodes)
+'                        Prop.LatLon      -> "lat,lon" (e.g. "28.4177,-81.5812").
+'                        Put it on 3+ spread-out shapes to calibrate GPS: the
+'                        planner fits a lat/lon -> map-pixel transform and can
+'                        show your live location + start from the nearest node.
 '   On Attraction:       Prop.RideDuration-> ride minutes (else DEFAULT_RIDE).
 '                        Also accepts Prop.Duration / RideTime / Ride / Minutes,
 '                        numeric or text ("12 min").
@@ -406,14 +410,19 @@ Public Sub ExportRideSim()
     Dim transitCount As Long: transitCount = 0
     Dim transportJson As String: transportJson = BuildTransportJson(transitSegs, transitCount)
 
+    ' --- geo pass: anchors from shapes carrying Prop.LatLon -------------------
+    Dim geoCount As Long: geoCount = 0
+    Dim geoJson As String: geoJson = BuildGeoJson(pg, geoCount)
+
     ' --- assemble blocks -----------------------------------------------------
     Dim nodesBlock As String, connBlock As String, attrBlock As String
-    Dim mapBlock As String, scaleBlock As String, transportBlock As String
+    Dim mapBlock As String, scaleBlock As String, transportBlock As String, geoBlock As String
     nodesBlock = "SAMPLE.nodes = [" & vbCrLf & nodesJson & vbCrLf & "];"
     connBlock = "SAMPLE.connections = [" & vbCrLf & connJson & vbCrLf & "];"
     attrBlock = "SAMPLE.attractions = [" & vbCrLf & attrJson & vbCrLf & "];"
     mapBlock = "SAMPLE.mapExtent = " & MapExtentJson(pg) & ";"
     transportBlock = "SAMPLE.transport = [" & vbCrLf & transportJson & vbCrLf & "];"
+    geoBlock = "SAMPLE.geoAnchors = [" & vbCrLf & geoJson & vbCrLf & "];"
 
     Dim ftPerPx As Double: ftPerPx = ComputeScale(pg)
     If ftPerPx > 0 Then
@@ -425,7 +434,7 @@ Public Sub ExportRideSim()
     Dim outText As String   ' plain-text fallback (same blocks, copy/paste-able)
     outText = nodesBlock & vbCrLf & vbCrLf & connBlock & vbCrLf & vbCrLf & _
               attrBlock & vbCrLf & vbCrLf & mapBlock & vbCrLf & vbCrLf & scaleBlock & vbCrLf & vbCrLf & _
-              transportBlock & vbCrLf
+              transportBlock & vbCrLf & vbCrLf & geoBlock & vbCrLf
     Debug.Print outText
 
     ' --- emit: patch the park's park.js in place, else write the .txt --------
@@ -433,11 +442,11 @@ Public Sub ExportRideSim()
     Dim msg As String, htmlP As String, didPatch As Boolean
     htmlP = HtmlPath()
     If htmlP <> "" Then
-        If Dir$(htmlP) <> "" Then didPatch = PatchHtml(htmlP, nodesBlock, connBlock, attrBlock, mapBlock, scaleBlock, transportBlock)
+        If Dir$(htmlP) <> "" Then didPatch = PatchHtml(htmlP, nodesBlock, connBlock, attrBlock, mapBlock, scaleBlock, transportBlock, geoBlock)
     End If
     If didPatch Then
         msg = "Wrote " & nodeCount & " nodes, " & connCount & " connections, " & _
-              attrCount & " attractions" & IIf(transitCount > 0, ", " & transitCount & " transport line(s)", "") & " into:" & vbCrLf & htmlP & vbCrLf & _
+              attrCount & " attractions" & IIf(transitCount > 0, ", " & transitCount & " transport line(s)", "") & IIf(geoCount > 0, ", " & geoCount & " geo anchor(s)", "") & " into:" & vbCrLf & htmlP & vbCrLf & _
               "Refresh the page in your browser."
     Else
         Dim savedTo As String: savedTo = WriteOut(outText)
@@ -492,7 +501,7 @@ End Function
 ' leaves the file untouched) if any marker is missing.
 Private Function PatchHtml(path As String, nodesBlock As String, connBlock As String, _
                            attrBlock As String, mapBlock As String, scaleBlock As String, _
-                           transportBlock As String) As Boolean
+                           transportBlock As String, geoBlock As String) As Boolean
     On Error GoTo fail
     Dim s As String: s = ReadTextUtf8(path)
     Dim nl As String: nl = IIf(InStr(s, vbCrLf) > 0, vbCrLf, vbLf)
@@ -502,9 +511,12 @@ Private Function PatchHtml(path As String, nodesBlock As String, connBlock As St
     s = PatchSection(s, "@RIDESIM:ATTR:START", "@RIDESIM:ATTR:END", Reflow(attrBlock, nl), nl, ok)
     s = PatchSection(s, "@RIDESIM:MAP:START", "@RIDESIM:MAP:END", Reflow(mapBlock, nl), nl, ok)
     s = PatchSection(s, "@RIDESIM:SCALE:START", "@RIDESIM:SCALE:END", Reflow(scaleBlock, nl), nl, ok)
-    ' transport markers are newer; patch only if present so older park.js still works
+    ' transport + geo markers are newer; patch only if present so older park.js still works
     If InStr(s, "@RIDESIM:TRANSPORT:START") > 0 Then
         s = PatchSection(s, "@RIDESIM:TRANSPORT:START", "@RIDESIM:TRANSPORT:END", Reflow(transportBlock, nl), nl, ok)
+    End If
+    If InStr(s, "@RIDESIM:GEO:START") > 0 Then
+        s = PatchSection(s, "@RIDESIM:GEO:START", "@RIDESIM:GEO:END", Reflow(geoBlock, nl), nl, ok)
     End If
     If ok Then WriteTextUtf8NoBom path, s   ' only touch the file if every marker matched
     PatchHtml = ok
@@ -743,6 +755,48 @@ Private Function BuildTransportJson(segs As Collection, ByRef lineCount As Long)
         End If
     Next
     BuildTransportJson = out
+End Function
+
+' Build SAMPLE.geoAnchors from shapes carrying Prop.LatLon ("lat,lon"). Each
+' becomes { x, y, lat, lon } using the shape's center pixel; the web app fits an
+' affine GPS->pixel transform from 3+ of them.
+Private Function BuildGeoJson(pg As Visio.Page, ByRef cnt As Long) As String
+    cnt = 0
+    Dim out As String, shp As Visio.Shape
+    For Each shp In pg.Shapes
+        Dim raw As String: raw = Trim$(PropStr(shp, "LatLon"))
+        If raw <> "" Then
+            Dim parts() As String: parts = Split(raw, ",")
+            If UBound(parts) >= 1 Then
+                Dim lat As Double, lon As Double
+                lat = ParseSigned(parts(0)): lon = ParseSigned(parts(1))
+                If Abs(lat) <= 90 And Abs(lon) <= 180 And (lat <> 0 Or lon <> 0) Then
+                    Dim c As Variant: c = CenterPx(shp)
+                    If cnt > 0 Then out = out & "," & vbCrLf
+                    out = out & "  { ""x"": " & CLng(c(0)) & ", ""y"": " & CLng(c(1)) & _
+                          ", ""lat"": " & JGeo(lat) & ", ""lon"": " & JGeo(lon) & " }"
+                    cnt = cnt + 1
+                Else
+                    Warn "Prop.LatLon out of range on '" & shp.NameU & "': " & raw
+                End If
+            Else
+                Warn "Prop.LatLon on '" & shp.NameU & "' isn't 'lat,lon': " & raw
+            End If
+        End If
+    Next shp
+End Function
+
+' Signed decimal parse (ParseNum drops the sign, which breaks W lon / S lat).
+Private Function ParseSigned(ByVal s As String) As Double
+    s = Trim$(s)
+    Dim neg As Boolean: neg = (Left$(s, 1) = "-")
+    Dim v As Double: v = ParseNum(s)
+    ParseSigned = IIf(neg, -v, v)
+End Function
+
+' Higher-precision JSON number for lat/lon (7 decimals ~= 1cm).
+Private Function JGeo(d As Double) As String
+    JGeo = Replace(Format$(d, "0.0000000"), ",", ".")
 End Function
 
 ' The Station a transit segment links to via its FromLink (isFrom=True) or ToLink
