@@ -93,6 +93,10 @@ Attribute VB_Name = "VisioExport"
 '                        Prop.Closed      -> true = drawn gray (not open today).
 '                        Prop.Audio       -> URL/file looped while the avatar is
 '                        at this stop during the animation, written as "audio".
+'                        Prop.QInside     -> true if the QUEUE is indoor/AC.
+'                        Prop.RInside     -> true if the RIDE (or a restaurant/
+'                        dwell) is indoor/AC. Both feed the sun-vs-AC bar; only
+'                        emitted when true (unset/false = outdoor sun).
 '
 ' SCALE BAR (sets real-world walking speed):
 '   Add two shapes named (or mastered) ScaleStart and ScaleEnd and a line
@@ -404,7 +408,7 @@ Public Sub ExportRideSim()
         Dim trkJson As String: trkJson = ""
         If KeyExists(trackOf, "k" & shp.id) Then trkJson = trackOf("k" & shp.id)
         If attrCount > 0 Then attrJson = attrJson & "," & vbCrLf
-        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp), IsClosed(shp), WaitIdOf(shp), accJson, PropStr(shp, "Hovertext"), AvgWaitOf(shp), trkJson, ThpwIdOf(shp), PropStr(shp, "Audio"))
+        attrJson = attrJson & AttractionJson(aId, ShapeName(shp), entId, exId, ac(0), ac(1), RideDur(shp), CategoryOf(shp), IsClosed(shp), WaitIdOf(shp), accJson, PropStr(shp, "Hovertext"), AvgWaitOf(shp), trkJson, ThpwIdOf(shp), PropStr(shp, "Audio"), PropIsTrue(shp, Array("QInside", "QueueInside")), PropIsTrue(shp, Array("RInside", "RideInside")))
         attrCount = attrCount + 1
     Next
 
@@ -1312,6 +1316,29 @@ Private Function PropStr(shp As Visio.Shape, propName As String) As String
     End If
 End Function
 
+' True when a boolean Shape Data field (by internal name, else visible label) is
+' set true. Tri-stateless: false or unset both read as False. Used for the
+' indoor/outdoor flags (Prop.QInside / Prop.RInside).
+Private Function PropIsTrue(shp As Visio.Shape, names As Variant) As Boolean
+    On Error Resume Next
+    Dim i As Long, Row As Long
+    For i = LBound(names) To UBound(names)
+        If shp.CellExistsU("Prop." & names(i), 0) Then PropIsTrue = TruthyCell(shp.CellsU("Prop." & names(i))): Exit Function
+    Next i
+    For Row = 0 To shp.RowCount(visSectionProp) - 1
+        Dim lbl As String: lbl = shp.CellsSRC(visSectionProp, Row, 2).ResultStr(visNone)
+        For i = LBound(names) To UBound(names)
+            If lbl Like names(i) Then PropIsTrue = TruthyCell(shp.CellsSRC(visSectionProp, Row, 0)): Exit Function
+        Next i
+    Next Row
+End Function
+Private Function TruthyCell(c As Visio.Cell) As Boolean
+    On Error Resume Next
+    Dim s As String: s = UCase$(Trim$(c.ResultStr("")))
+    If s = "TRUE" Or s = "1" Or s = "YES" Or s = "Y" Then TruthyCell = True: Exit Function
+    If c.Result(visNone) <> 0 Then TruthyCell = True
+End Function
+
 Private Function CN(shp As Visio.Shape, cell As String) As Double
     On Error Resume Next
     CN = shp.CellsU(cell).ResultIU
@@ -1331,7 +1358,7 @@ Private Function AttractionJson(id As String, nm As String, entId As String, exI
                           x As Variant, y As Variant, ride As Double, cat As String, _
                           closed As Boolean, waitId As String, accessIds As String, _
                           hover As String, avgWait As Double, trackJson As String, _
-                          thpw As String, audio As String) As String
+                          thpw As String, audio As String, qInside As Boolean, rInside As Boolean) As String
     ' Emit each optional field only when set; otherwise lines match the original
     ' shape so the web app (ride/open defaults) is happy.
     Dim catJson As String
@@ -1352,10 +1379,13 @@ Private Function AttractionJson(id As String, nm As String, entId As String, exI
     If trackJson <> "" Then trkJson = ", ""track"": " & trackJson
     Dim audioJson As String
     If Trim$(audio) <> "" Then audioJson = ", ""audio"": """ & JStr(Trim$(audio)) & """"
+    Dim insideJson As String       ' indoor flags for the sun/AC bar (only when true)
+    If qInside Then insideJson = insideJson & ", ""qInside"": true"
+    If rInside Then insideJson = insideJson & ", ""rInside"": true"
     AttractionJson = "  { ""id"": """ & id & """, ""name"": """ & JStr(nm) & _
         """, ""entranceNodeId"": """ & entId & """, ""exitNodeId"": """ & exId & _
         """, ""displayLocation"": { ""x"": " & CLng(x) & ", ""y"": " & CLng(y) & _
-        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & closedJson & waitJson & thpwJson & accJson & hoverJson & avgJson & trkJson & audioJson & " }"
+        " }, ""rideDuration"": " & CLng(Round(ride)) & catJson & closedJson & waitJson & thpwJson & accJson & hoverJson & avgJson & trkJson & audioJson & insideJson & " }"
 End Function
 
 ' ThemeParks.wiki entity GUID from Shape Data (Prop.ThPWID and aliases), used
