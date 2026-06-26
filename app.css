@@ -102,7 +102,8 @@
   /* sun vs AC bar, full width at the bottom, scaled to a 24h day */
   .sun-footer { flex: none; padding: 6px 14px 5px; border-top: 1px solid var(--border); background: var(--panel); }
   .sf-track { position: relative; height: 16px; border-radius: 4px; background: var(--panel2); overflow: hidden; }
-  .sf-seg { position: absolute; top: 0; bottom: 0; }
+  .sf-seg { position: absolute; top: 0; bottom: 0; cursor: pointer; }
+  .sf-seg.sf-sel { outline: 2px solid #fff; outline-offset: -2px; z-index: 2; }
   .sf-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.07); }
   .sf-axis { position: relative; height: 12px; margin-top: 2px; }
   .sf-lbl { position: absolute; transform: translateX(-50%); font-size: 9px; color: var(--muted); }

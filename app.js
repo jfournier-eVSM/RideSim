@@ -1541,31 +1541,30 @@ function wireSeqDrag(div, i) {
   });
   div.addEventListener("click", () => selectStep(i));   // tap a stop to highlight its leg + marker
 }
-// Select (or toggle off) a sequence stop: highlights its walk-to leg and
-// attraction on the map, and marks its list row.
-function selectStep(i) {
-  selectedStep = (selectedStep === i) ? null : i;
+// Reflect selectedStep across the list row, the sun-bar blocks, and the map.
+function applySelectionUI() {
   document.querySelectorAll("#seqList .seq-item.selected").forEach(x => x.classList.remove("selected"));
+  document.querySelectorAll("#sunFooter .sf-seg.sf-sel").forEach(x => x.classList.remove("sf-sel"));
   if (selectedStep !== null) {
     const item = document.querySelector('#seqList .seq-item[data-idx="' + selectedStep + '"]');
     if (item) { item.classList.add("selected"); item.scrollIntoView({ block: "nearest" }); }
+    document.querySelectorAll('#sunFooter .sf-seg[data-step="' + selectedStep + '"]').forEach(x => x.classList.add("sf-sel"));
   }
   draw();
 }
+// Select (or toggle off) a stop — from a list row or a sun-bar segment.
+function selectStep(i) { selectedStep = (selectedStep === i) ? null : i; applySelectionUI(); }
 function clearSelection() {
   selectedStep = null;
   document.querySelectorAll("#seqList .seq-item.selected").forEach(x => x.classList.remove("selected"));
+  document.querySelectorAll("#sunFooter .sf-seg.sf-sel").forEach(x => x.classList.remove("sf-sel"));
 }
 // Move the selection to the previous/next stop (delta -1 / +1).
 function moveSelection(delta) {
   if (selectedStep === null) return;
   const j = selectedStep + delta;
   if (j < 0 || j >= state.sequence.length) return;
-  selectedStep = j;
-  document.querySelectorAll("#seqList .seq-item.selected").forEach(x => x.classList.remove("selected"));
-  const item = document.querySelector('#seqList .seq-item[data-idx="' + j + '"]');
-  if (item) { item.classList.add("selected"); item.scrollIntoView({ block: "nearest" }); }
-  draw();
+  selectedStep = j; applySelectionUI();
 }
 // Prompt for a new 1-based position and move the item there (touch-friendly).
 function moveSeqItem(i) {
@@ -1670,17 +1669,17 @@ function renderSunFooter() {
   let segHtml = "", legend = "";
   if (state.steps.length) {
     const blocks = [];
-    const add = (a, b, indoor, label) => { if (b > a) blocks.push({ a: a, b: b, indoor: indoor, label: label }); };
-    state.steps.forEach(s => {
+    const add = (a, b, indoor, label, step) => { if (b > a) blocks.push({ a: a, b: b, indoor: indoor, label: label, step: step }); };
+    state.steps.forEach((s, i) => {
       const attr = state.attractions.get(s.attractionId);
-      add(s.walkStart, s.waitStart, false, "Walk to " + s.name);          // travel (walk + transit) = hot
-      if (s.wait > 0) add(s.waitStart, s.waitEnd, insideQ(attr), s.name + " queue");
-      if (s.ride > 0) add(s.rideStart, s.rideEnd, insideR(attr), s.name);
+      add(s.walkStart, s.waitStart, false, "Walk to " + s.name, i);       // travel (walk + transit) = hot
+      if (s.wait > 0) add(s.waitStart, s.waitEnd, insideQ(attr), s.name + " queue", i);
+      if (s.ride > 0) add(s.rideStart, s.rideEnd, insideR(attr), s.name, i);
     });
     segHtml = blocks.map(b => {
       const left = (((b.a % DAY) + DAY) % DAY) / DAY * 100, w = (b.b - b.a) / DAY * 100;
       const tip = (b.indoor ? "AC" : "Hot") + " · " + b.label + " · " + minToHM(b.a) + "–" + minToHM(b.b);
-      return '<div class="sf-seg" style="left:' + left.toFixed(3) + '%;width:' + Math.max(w, 0.06).toFixed(3) +
+      return '<div class="sf-seg" data-step="' + b.step + '" style="left:' + left.toFixed(3) + '%;width:' + Math.max(w, 0.06).toFixed(3) +
         '%;background:' + (b.indoor ? "var(--accent)" : "#ffcc4d") + '" title="' + esc(tip) + '"></div>';
     }).join("");
     const d = sunSegments();
@@ -1688,6 +1687,7 @@ function renderSunFooter() {
   }
   el.innerHTML = '<div class="sf-track">' + ticks + segHtml + '</div>' +
     '<div class="sf-axis">' + labels + (legend ? '<div class="sf-legend">' + legend + '</div>' : "") + '</div>';
+  el.querySelectorAll(".sf-seg").forEach(seg => { seg.onclick = () => selectStep(+seg.dataset.step); });
 }
 function renderSummary() {
   const el = document.getElementById("summary");
