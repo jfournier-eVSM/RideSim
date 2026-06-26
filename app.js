@@ -817,20 +817,22 @@ function draw(marker) {
   }
   (state.transport || []).forEach(line => {
     const bright = activeLines.has(line.id);
-    const col = bright ? "rgba(70,198,184,0.9)" : "rgba(70,198,184,0.22)";
+    // a line's two directions overlap, so the idle alpha is kept low (it stacks
+    // to roughly the ride-track faintness); the ridden line jumps to full.
+    const col = bright ? "rgba(70,198,184,0.9)" : "rgba(70,198,184,0.13)";
     (line.segments || []).forEach(seg => {
       if (!seg || !state.nodes.has(seg.from) || !state.nodes.has(seg.to)) return;
       const path = (Array.isArray(seg.path) && seg.path.length >= 2) ? seg.path : [nodePt(seg.from), nodePt(seg.to)];
-      drawPath(path, col, bright ? 2.6 : 1.5, false);
+      drawPath(path, col, bright ? 2.6 : 1.4, false);
     });
-    ctx.globalAlpha = bright ? 1 : 0.4;
     lineStops(line).forEach(s => {
       const p = nodePt(s.node);
-      ctx.beginPath(); ctx.arc(tx(p.x), ty(p.y), bright ? 4.5 : 3.5, 0, 7);
+      ctx.globalAlpha = bright ? 1 : 0.25;
+      ctx.beginPath(); ctx.arc(tx(p.x), ty(p.y), bright ? 4.5 : 2.5, 0, 7);
       ctx.fillStyle = TRANSIT_COLOR; ctx.fill();
-      ctx.lineWidth = 1.5; ctx.strokeStyle = "#0f1420"; ctx.stroke();
+      if (bright) { ctx.lineWidth = 1.5; ctx.strokeStyle = "#0f1420"; ctx.stroke(); }  // outline only when in use
+      ctx.globalAlpha = 1;
     });
-    ctx.globalAlpha = 1;
   });
 
   // ride tracks (always faint). The active ride's track brightens during play.
