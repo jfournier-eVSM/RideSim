@@ -33,7 +33,7 @@
     <button id="playBtn" class="primary">▶ Play</button>
     <button id="stopBtn">■ Stop</button>
     <button id="addNodeBtn" style="display:none" title="Double-click the map to capture node coordinates">➕ Add Nodes</button>
-    <button id="dataBtn">📋 Data</button>
+    <button id="dataBtn" style="display:none">📋 Data</button>
     <button id="exportBtn">⬇ Export</button>
   </div>
 </header>
@@ -91,7 +91,10 @@
   <div class="col right">
     <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
       <span>Your Sequence</span>
-      <button id="clearSeq" class="danger" style="padding:3px 9px;font-size:11px">Clear</button>
+      <span style="display:flex;gap:6px">
+        <button id="pasteBtn" style="padding:3px 9px;font-size:11px" title="Load a plan from a pasted ride-name list">📋 Paste</button>
+        <button id="clearSeq" class="danger" style="padding:3px 9px;font-size:11px">Clear</button>
+      </span>
     </div>
     <div id="seqList" style="max-height:32vh;overflow-y:auto"></div>
     <div class="section-title">Timeline</div>

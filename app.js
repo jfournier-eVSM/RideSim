@@ -2087,6 +2087,14 @@ document.getElementById("playBtn").onclick = () => { playing ? pause() : play();
 document.getElementById("stopBtn").onclick = stop;
 document.getElementById("exportBtn").onclick = exportPlan;
 document.getElementById("clearSeq").onclick = () => { state.sequence = []; stop(); refresh(); };
+// "Paste" opens the data modal focused on the Plan tab (a copy/paste surface).
+document.getElementById("pasteBtn").onclick = () => {
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === "plan"));
+  document.querySelectorAll(".pane").forEach(p => p.classList.toggle("active", p.dataset.pane === "plan"));
+  openModal();
+  const ta = document.getElementById("ta-plan");
+  if (ta) { ta.focus(); ta.select(); }
+};
 document.getElementById("startTime").onchange = () => { stop(); refresh(); };
 function setStartNow() {
   const d = new Date();
