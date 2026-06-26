@@ -1009,7 +1009,7 @@ function draw(marker) {
     const liveShow = live && (!live.open || typeof live.wait === "number");      // skip open-but-no-standby
     const ll = showLL ? llAvail(a) : null;          // AVAILABLE Lightning Lane (countdown takes over the center)
     // pins are points of interest — half the diameter of other markers
-    let radius = (hot ? sz.hot : sz.r) * (cat === "pin" ? 0.5 : cat === "other" ? 0.7 : 1), fill, inside = "", insideColor = "#08263a";
+    let radius = (hot ? sz.hot : sz.r) * (cat === "pin" || cat === "other" ? 0.5 : 1), fill, inside = "", insideColor = "#08263a";
     if (ll) {
       // LL available — show whole minutes until the return window opens, in gold.
       radius += 3;
