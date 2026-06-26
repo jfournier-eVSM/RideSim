@@ -136,6 +136,8 @@ Private Const BG_LAYER As String = "Bck"
 ' Layer holding ride track shapes. A shape on this layer is a ride animation
 ' path; glue one end into the ride shape to bind it to that ride.
 Private Const TRACK_LAYER As String = "Track"
+' Transport lines live on layers named "transit_<LineName>" (e.g. transit_Railroad).
+Private Const TRANSIT_PREFIX As String = "transit_"
 
 Private mPageH As Double                   ' active page height (inches), for Y-flip
 Private mNodeMap As Collection             ' "k"&Shape.ID -> Array(id, cxPx, cyPx, role)
@@ -660,8 +662,7 @@ Private Function OnLayer(shp As Visio.Shape, layerName As String) As Boolean
     Next i
 End Function
 
-' Transport lines live on layers named "transit_<LineName>" (e.g. transit_Railroad).
-Private Const TRANSIT_PREFIX As String = "transit_"
+' Transport lines live on the "transit_<LineName>" layers (prefix at module top).
 Private Function IsTransitLayer(shp As Visio.Shape) As Boolean
     On Error Resume Next
     Dim i As Long
