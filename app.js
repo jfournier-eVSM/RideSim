@@ -509,9 +509,25 @@ function onGeoFix(pos) {
   if (nn !== geoStartNode) { geoStartNode = nn; if (!playing) refresh(); }   // re-route only when the snapped node changes
   draw();
 }
+// ?pretend=lat,lon — fake a standing position for testing away from the park.
+function pretendLatLon() {
+  try {
+    const v = new URLSearchParams(location.search).get("pretend");
+    if (!v) return null;
+    const m = v.split(","); const lat = parseFloat(m[0]), lon = parseFloat(m[1]);
+    if (isFinite(lat) && isFinite(lon)) return { lat: lat, lon: lon };
+  } catch (e) {}
+  return null;
+}
 function toggleGeo() {
   if (geoActive) { stopGeo(); return; }
   if (!geoXform) { alert("This park isn't geo-calibrated yet (needs Prop.LatLon on 3+ shapes)."); return; }
+  const pretend = pretendLatLon();
+  if (pretend) {        // testing override: place me at the URL's lat/lon, no GPS
+    geoActive = true; refreshGeoBtn();
+    onGeoFix({ coords: { longitude: pretend.lon, latitude: pretend.lat, accuracy: 5 } });
+    return;
+  }
   if (!navigator.geolocation) { alert("Geolocation isn't available in this browser."); return; }
   geoActive = true; refreshGeoBtn();
   geoWatchId = navigator.geolocation.watchPosition(onGeoFix,
