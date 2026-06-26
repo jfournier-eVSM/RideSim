@@ -765,23 +765,22 @@ Private Function BuildGeoJson(pg As Visio.Page, ByRef cnt As Long) As String
     cnt = 0
     Dim out As String, shp As Visio.Shape
     For Each shp In pg.Shapes
+        ' LatLon is an optional field that sits blank on most master instances, so
+        ' anything that isn't a real "lat,lon" pair is skipped silently (no spam);
+        ' only a genuine pair that's out of range is worth a warning.
         Dim raw As String: raw = Trim$(LatLonOf(shp))
-        If raw <> "" Then
+        If InStr(raw, ",") > 0 Then
             Dim parts() As String: parts = Split(raw, ",")
-            If UBound(parts) >= 1 Then
-                Dim lat As Double, lon As Double
-                lat = ParseSigned(parts(0)): lon = ParseSigned(parts(1))
-                If Abs(lat) <= 90 And Abs(lon) <= 180 And (lat <> 0 Or lon <> 0) Then
-                    Dim c As Variant: c = CenterPx(shp)
-                    If cnt > 0 Then out = out & "," & vbCrLf
-                    out = out & "  { ""x"": " & CLng(c(0)) & ", ""y"": " & CLng(c(1)) & _
-                          ", ""lat"": " & JGeo(lat) & ", ""lon"": " & JGeo(lon) & " }"
-                    cnt = cnt + 1
-                Else
-                    Warn "Prop.LatLon out of range on '" & shp.NameU & "': " & raw
-                End If
+            Dim lat As Double, lon As Double
+            lat = ParseSigned(parts(0)): lon = ParseSigned(parts(1))
+            If Abs(lat) <= 90 And Abs(lon) <= 180 And (lat <> 0 Or lon <> 0) Then
+                Dim c As Variant: c = CenterPx(shp)
+                If cnt > 0 Then out = out & "," & vbCrLf
+                out = out & "  { ""x"": " & CLng(c(0)) & ", ""y"": " & CLng(c(1)) & _
+                      ", ""lat"": " & JGeo(lat) & ", ""lon"": " & JGeo(lon) & " }"
+                cnt = cnt + 1
             Else
-                Warn "Prop.LatLon on '" & shp.NameU & "' isn't 'lat,lon': " & raw
+                Warn "Prop.LatLon out of range on '" & shp.NameU & "': " & raw
             End If
         End If
     Next shp
