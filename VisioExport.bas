@@ -784,6 +784,7 @@ Private Function BuildGeoJson(pg As Visio.Page, ByRef cnt As Long) As String
             End If
         End If
     Next shp
+    BuildGeoJson = out
 End Function
 
 ' "lat,lon" from Shape Data. Tries the internal name first, then the visible
