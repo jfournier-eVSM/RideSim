@@ -7,7 +7,7 @@
    object, including SAMPLE.meta), loaded before this file.
    ========================================================================= */
 
-const WALK_FT_PER_MIN = 88; // ~3 mph
+const WALK_FT_PER_MIN = 114; // brisk theme-park pace (~30% quicker than the old 88)
 
 // URL-safe slug from the park name (used for export filenames).
 function parkSlug() {
@@ -2069,7 +2069,9 @@ function applyData() {
 // The plan IS the sequence. Render it as one human name per line, in order, so
 // it can be copied out and pasted back. Transit rides: "🚂 Line → Stop".
 function planText() {
-  return state.sequence.map(id => {
+  const startMin = hmToMin(document.getElementById("startTime").value || "09:00");
+  const header = "Start: " + t12(startMin);   // round-trips the chosen start time
+  const lines = state.sequence.map(id => {
     if (isTransitToken(id)) {
       const p = parseTransitToken(id);
       const line = (state.transport || []).find(l => l.id === p.lineId);
@@ -2089,7 +2091,19 @@ function planText() {
       if (d > 0) line += " - " + d + "m";
     }
     return line;
-  }).join("\n");
+  });
+  return [header].concat(lines).join("\n");
+}
+// "8:30 AM" / "08:30" -> "HH:MM" (24h) for the start-time input. null if unparseable.
+function clockTo24(s) {
+  const m = String(s).match(/(\d{1,2}):(\d{2})\s*([ap])\.?m?\.?/i);
+  if (m) {
+    let h = parseInt(m[1], 10) % 12;
+    if (m[3].toLowerCase() === "p") h += 12;
+    return String(h).padStart(2, "0") + ":" + m[2];
+  }
+  const h24 = String(s).match(/(\d{1,2}):(\d{2})/);
+  return h24 ? String(parseInt(h24[1], 10)).padStart(2, "0") + ":" + h24[2] : null;
 }
 // Parse a pasted name list back into a sequence; returns { seq, unmatched }.
 function parsePlan(text) {
@@ -2112,6 +2126,12 @@ function parsePlan(text) {
   String(text || "").split(/\r?\n/).forEach(raw => {
     let line = raw.trim();
     if (!line) return;
+    // a "Start: 8:30 AM" header sets the day's start time (not a sequence stop)
+    if (/^start\b/i.test(line)) {
+      const t = clockTo24(line), inp = document.getElementById("startTime");
+      if (t && inp) inp.value = t;
+      return;
+    }
     // pull a trailing " - <n>m" time off the end (the dash is a delimiter, so it
     // must end in digits+m — a " - " inside a name won't match).
     let mins = null;
