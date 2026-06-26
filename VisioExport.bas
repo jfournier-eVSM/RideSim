@@ -32,13 +32,20 @@ Attribute VB_Name = "VisioExport"
 '          never directly into the walkway graph.
 '        - TRANSPORT lines (railroad / ferries): put each line's tracks on a
 '          layer named "transit_<LineName>" (e.g. transit_Railroad). Draw one
-'          DIRECTED line per segment, glued FROM the departing Station TO the
-'          arriving Station (the line's begin end = "from", its end = "to"),
-'          carrying Prop.Duration = minutes for that hop. Bends are captured as
-'          the segment path. The engine chains segments in their direction:
-'          - two-way: draw a segment each way (A->B and B->A; their paths may
-'            differ - e.g. a ferry that loops out and backs in).
-'          - one-way loop: draw a cycle of segments (A->B, B->C, C->A).
+'          DIRECTED line per segment, carrying Prop.Duration = minutes for that
+'          hop; its bends are captured as the segment path.
+'          Direction: Visio won't glue a 2-D Station, so instead give the segment
+'          two cells whose FORMULAS reference the stations - FromLink (departing)
+'          and ToLink (arriving). Any of these cell homes works (first found):
+'            Connections.FromLink.X / .Y, User.FromLink, or Prop.FromLink
+'          (same for ToLink). The exporter reads the shape each formula points at
+'          - just reference the station anywhere in the formula (e.g. =Station!PinX).
+'          Prop.Reverse = TRUE flips the captured path order, so you can COPY a
+'          one-way segment, swap its From/To links, and set Reverse instead of
+'          redrawing the geometry backwards.
+'          The engine chains segments in their direction:
+'          - two-way: a segment each way (A->B and B->A; paths may differ).
+'          - one-way loop: a cycle of segments (A->B, B->C, C->A).
 '          Boarding wait comes from the BOARD station's ThPWID/AvgWait.
 '   4. Run:  Tools > Macros > VisioExport.ExportRideSim   (or F5 in the editor).
 '   5. The macro writes the data into the park's data file (park.js), replacing
@@ -169,6 +176,7 @@ Public Sub ExportRideSim()
         If role <> "" Then mRole.Add role, "k" & shp.id
         If ScaleRole(shp) <> "" Then mScaleIds.Add True, "k" & shp.id
         If OnLayer(shp, TRACK_LAYER) Then mTrackIds.Add True, "k" & shp.id: trackShapes.Add shp
+        If IsTransitLayer(shp) And role = "" Then transitSegs.Add shp   ' a transit track segment (any dimensionality)
         Select Case role
             Case "Node":     nodeShapes.Add shp
             Case "Station":  nodeShapes.Add shp: stationShapes.Add shp   ' a Stop is a graph node + a transit stop
@@ -191,7 +199,7 @@ Public Sub ExportRideSim()
     For Each shp In pg.Shapes
         If MasterRole(shp) = "" And shp.OneD And Not KeyExists(mTrackIds, "k" & shp.id) Then
           If IsTransitLayer(shp) Then
-            transitSegs.Add shp        ' a directed transit segment, not a walkway edge
+            ' a transit segment - collected in pass A; excluded from walkway edges here
           Else
             Dim bShp As Visio.Shape, eShp As Visio.Shape
             Set bShp = Nothing: Set eShp = Nothing
@@ -683,10 +691,13 @@ Private Function BuildTransportJson(segs As Collection, ByRef lineCount As Long)
         For Each v In segs
             Set shp = v
             If TransitLineOf(shp) = ln Then
+                ' direction comes from the FromLink / ToLink cell references (Visio
+                ' won't glue a 2-D station, so we point cells at the stops instead)
                 Dim b As Visio.Shape, e As Visio.Shape
-                Set b = Nothing: Set e = Nothing: GetEnds shp, b, e
+                Set b = LinkedStation(shp, True)
+                Set e = LinkedStation(shp, False)
                 If b Is Nothing Or e Is Nothing Then
-                    Warn "Transit segment on '" & ln & "' isn't glued at both ends: " & shp.NameU
+                    Warn "Transit segment on '" & ln & "' is missing a FromLink/ToLink reference to a Station: " & shp.NameU
                 Else
                     Dim fromId As String, toId As String
                     fromId = FinalId(b): toId = FinalId(e)
@@ -694,15 +705,14 @@ Private Function BuildTransportJson(segs As Collection, ByRef lineCount As Long)
                         Warn "Transit segment on '" & ln & "' could not resolve two distinct Stops: " & shp.NameU
                     Else
                         Dim mins As Double: mins = RideDur(shp)
-                        Dim pts As String: pts = ConnectorPointsJson(shp, fromId)
+                        Dim rev As Boolean: rev = PropBool(shp, "Reverse")  ' copy a segment + flip for the other direction
+                        Dim pts As String: pts = SegmentPointsJson(shp, rev)
                         If Not segFirst Then segJson = segJson & "," & vbCrLf
                         segJson = segJson & "    { ""from"": """ & fromId & """, ""to"": """ & toId & _
                                   """, ""minutes"": " & JNum(mins) & ", ""path"": [" & pts & "] }"
                         segFirst = False
-                        Dim kb As Visio.Shape, ke As Visio.Shape
-                        Set kb = ClimbKnown(b): Set ke = ClimbKnown(e)
-                        If Not KeyExists(stopIds, fromId) Then stopIds.Add True, fromId: stopList.Add Array(fromId, kb)
-                        If Not KeyExists(stopIds, toId) Then stopIds.Add True, toId: stopList.Add Array(toId, ke)
+                        If Not KeyExists(stopIds, fromId) Then stopIds.Add True, fromId: stopList.Add Array(fromId, b)
+                        If Not KeyExists(stopIds, toId) Then stopIds.Add True, toId: stopList.Add Array(toId, e)
                     End If
                 End If
             End If
@@ -733,6 +743,99 @@ Private Function BuildTransportJson(segs As Collection, ByRef lineCount As Long)
         End If
     Next
     BuildTransportJson = out
+End Function
+
+' The Station a transit segment links to via its FromLink (isFrom=True) or ToLink
+' cell. Visio won't glue a 2-D station, so the segment instead carries a cell
+' whose FORMULA references the station shape; we read that reference. Looks in a
+' few likely cell homes and returns the referenced (known) shape.
+Private Function LinkedStation(seg As Visio.Shape, isFrom As Boolean) As Visio.Shape
+    On Error Resume Next
+    Dim base As String: base = IIf(isFrom, "FromLink", "ToLink")
+    Dim cands(0 To 4) As String
+    cands(0) = "Connections." & base & ".X"
+    cands(1) = "Connections." & base & ".Y"
+    cands(2) = "User." & base
+    cands(3) = "Prop." & base
+    cands(4) = "Scratch." & base       ' unlikely, but harmless
+    Dim i As Long
+    For i = 0 To 4
+        If seg.CellExistsU(cands(i), 0) Then
+            Dim sh As Visio.Shape: Set sh = RefShape(seg.ContainingPage, seg.CellsU(cands(i)).FormulaU)
+            If Not sh Is Nothing Then Set LinkedStation = ClimbKnown(sh): Exit Function
+        End If
+    Next i
+End Function
+
+' Resolve the shape a ShapeSheet formula references: the identifier just before
+' the first "!" (handles 'Quoted Name'!.. and Sheet.N!.. forms).
+Private Function RefShape(pg As Visio.Page, formula As String) As Visio.Shape
+    On Error Resume Next
+    Dim bang As Long: bang = InStr(formula, "!")
+    If bang <= 1 Then Exit Function
+    Dim tok As String, j As Long: j = bang - 1
+    If Mid$(formula, j, 1) = "'" Then                       ' 'Some Name'!
+        Dim q1 As Long: q1 = InStrRev(formula, "'", j - 1)
+        If q1 > 0 Then tok = Mid$(formula, q1 + 1, j - q1 - 1)
+    Else                                                   ' Sheet.7! / Name!
+        Dim p As Long: p = j
+        Do While p >= 1
+            Dim ch As String: ch = Mid$(formula, p, 1)
+            If (ch Like "[A-Za-z0-9]") Or ch = "." Or ch = "_" Then p = p - 1 Else Exit Do
+        Loop
+        tok = Mid$(formula, p + 1, j - p)
+    End If
+    If tok = "" Then Exit Function
+    Dim sh As Visio.Shape: Set sh = pg.Shapes.ItemU(tok)   ' NameU (e.g. Sheet.7)
+    If sh Is Nothing Then                                  ' fall back to display name
+        Dim t As Visio.Shape
+        For Each t In pg.Shapes
+            If LCase$(t.Name) = LCase$(tok) Or LCase$(t.NameU) = LCase$(tok) Then Set sh = t: Exit For
+        Next t
+    End If
+    Set RefShape = sh
+End Function
+
+' A transit segment's geometry as JSON point objects (inner list, no brackets).
+' reverseIt flips the order - lets you copy a one-way segment for the return
+' direction and set Prop.Reverse=TRUE instead of redrawing it backwards.
+Private Function SegmentPointsJson(shp As Visio.Shape, reverseIt As Boolean) As String
+    Dim pts As Collection: Set pts = New Collection
+    On Error Resume Next
+    Dim i As Long, r As Long, xl As Double, yl As Double
+    For i = 1 To shp.GeometryCount
+        r = 1
+        Do While shp.CellExistsU("Geometry" & i & ".X" & r, 0)
+            xl = shp.CellsU("Geometry" & i & ".X" & r).ResultIU
+            yl = shp.CellsU("Geometry" & i & ".Y" & r).ResultIU
+            pts.Add LocalToPagePx(shp, xl, yl)
+            r = r + 1
+        Loop
+    Next i
+    If pts.Count < 2 Then
+        Set pts = New Collection
+        pts.Add Array(Round(CN(shp, "BeginX") * PPI), Round((mPageH - CN(shp, "BeginY")) * PPI))
+        pts.Add Array(Round(CN(shp, "EndX") * PPI), Round((mPageH - CN(shp, "EndY")) * PPI))
+    End If
+    On Error GoTo 0
+    If reverseIt Then Set pts = ReverseCol(pts)
+    Dim s As String, kk As Long, pv As Variant
+    For kk = 1 To pts.Count
+        pv = pts(kk)
+        If kk > 1 Then s = s & ", "
+        s = s & "{ ""x"": " & CLng(pv(0)) & ", ""y"": " & CLng(pv(1)) & " }"
+    Next kk
+    SegmentPointsJson = s
+End Function
+
+' Read a boolean Shape Data / cell value (TRUE / 1 / yes).
+Private Function PropBool(shp As Visio.Shape, propName As String) As Boolean
+    On Error Resume Next
+    Dim s As String: s = LCase$(Trim$(PropStr(shp, propName)))
+    If s = "true" Or s = "1" Or s = "yes" Then PropBool = True: Exit Function
+    If shp.CellExistsU("Prop." & propName, 0) Then
+        If shp.CellsU("Prop." & propName).Result(visNone) <> 0 Then PropBool = True
+    End If
 End Function
 
 ' "ScaleStart" / "ScaleEnd" / "" - by master name or shape name.
