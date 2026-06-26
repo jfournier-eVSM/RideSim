@@ -1766,23 +1766,7 @@ function exportPlan() {
   const totFt = state.steps.reduce((a, x) => a + stepFeet(x.distPx), 0);
   const finish = state.steps[state.steps.length - 1].rideEnd;
 
-  // structured data — kept for a future "import this plan" feature
-  const json = {
-    startTime: minToHM(startMin),
-    sequence: state.sequence.slice(),
-    steps: state.steps.map(s => ({
-      attractionId: s.attractionId, name: s.name, category: s.category, reachable: s.reachable,
-      walk: round1(s.walk), wait: round1(s.wait), ride: s.ride, total: round1(s.total),
-      walkFeet: Math.round(stepFeet(s.distPx)),
-      walkStart: minToHM(s.walkStart), walkEnd: minToHM(s.walkEnd),
-      waitStart: minToHM(s.waitStart), waitEnd: minToHM(s.waitEnd),
-      rideStart: minToHM(s.rideStart), rideEnd: minToHM(s.rideEnd)
-    })),
-    totals: { walk: round1(totWalk), wait: round1(totWait), ride: round1(totRide),
-              walkFeet: Math.round(totFt), finish: minToHM(finish) }
-  };
-
-  const html = itineraryHtml(startMin, finish, totWalk, totWait, totRide, totFt, JSON.stringify(json, null, 2));
+  const html = itineraryHtml(startMin, finish, totWalk, totWait, totRide, totFt, planText());
   const w = window.open("", "_blank");
   if (w) { w.document.open(); w.document.write(html); w.document.close(); }
   else download("mk-itinerary.html", html, "text/html");   // popup blocked -> save instead
@@ -1797,7 +1781,7 @@ function t12(min) {
 }
 const CAT_ICON = { ride: "🎢", restaurant: "🍽", shop: "🛍", pin: "📍", restroom: "🚻", other: "⏱", transit: "🚂" };
 // A clean, printable HTML day plan (own document so print/Save-PDF is native).
-function itineraryHtml(startMin, finish, totWalk, totWait, totRide, totFt, jsonStr) {
+function itineraryHtml(startMin, finish, totWalk, totWait, totRide, totFt, planStr) {
   const steps = state.steps.map((s, i) => {
     const ic = CAT_ICON[s.category] || "🎢";
     const warn = s.reachable ? "" : ' <span class="warn">no path</span>';
@@ -1820,7 +1804,6 @@ function itineraryHtml(startMin, finish, totWalk, totWait, totRide, totFt, jsonS
     '<div class="tline"><span>🎢 Doing</span><span>' + fmtDur(totRide) + '</span></div>' +
     '<div class="tline"><span>📍 Stops</span><span>' + state.steps.length + '</span></div></div>';
 
-  const jsonHref = "data:application/json;charset=utf-8," + encodeURIComponent(jsonStr);
   const css = 'body{font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;color:#1a2233;background:#f4f6fb;margin:0;padding:24px;}' +
     '.wrap{max-width:680px;margin:0 auto;}h1{font-size:20px;margin:0 0 2px;}' +
     '.sub{color:#6b7687;font-size:13px;margin:0 0 16px;}' +
@@ -1845,10 +1828,11 @@ function itineraryHtml(startMin, finish, totWalk, totWait, totRide, totFt, jsonS
     '<h1>' + SAMPLE.meta.emoji + ' ' + SAMPLE.meta.name + ' — Day Plan</h1>' +
     '<p class="sub">Starts ' + t12(startMin) + ' · ' + state.steps.length + ' stops · finishes ' + t12(finish) + '</p>' +
     '<div class="btns"><button class="pri" onclick="window.print()">🖨 Print / Save PDF</button>' +
-    '<a download="' + parkSlug() + '-plan.json" href="' + jsonHref + '">⬇ Data (JSON)</a></div>' +
-    steps + totals + '</div></body></html>';
+    '<button id="copybtn" onclick="copyPlan()">📋 Copy plan</button></div>' +
+    steps + totals +
+    '<textarea id="plansrc" readonly style="position:absolute;left:-9999px;top:0">' + esc(planStr) + '</textarea>' +
+    '</div><script>function copyPlan(){var t=document.getElementById("plansrc");t.focus();t.select();t.setSelectionRange(0,99999);try{document.execCommand("copy");}catch(e){}if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t.value);}var b=document.getElementById("copybtn"),o=b.textContent;b.textContent="\\u2713 Copied — paste into Data \\u25b8 Plan";setTimeout(function(){b.textContent=o;},1800);}</script></body></html>';
 }
-function round1(x) { return Math.round(x * 10) / 10; }
 function download(name, content, type) {
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
@@ -1859,12 +1843,14 @@ function download(name, content, type) {
 
 /* ---------- Data modal -------------------------------------------------- */
 const HINTS = {
+  plan: 'Your plan as one stop per line, in order. Paste a ride-name list to load it (names matched loosely). Transit rides: "🚂 LineName → Stop".',
   nodes: 'Array of { id, name?, isAttraction, x, y } — node coordinates in pixels.',
   connections: 'Array of { from, to:[...] }, or { from, to:"id", points:[{x,y}...] } for a polyline edge (length follows the polyline).',
   attractions: 'Array of { id, name, entranceNodeId, exitNodeId, displayLocation:{x,y}, rideDuration, category?, closed?, hoverText?, avgWait?, thpwId?, track?, audio? }. category ride|restaurant|shop|pin|restroom|other (default ride); only rides queue. "other" is a generic timed stop (default 5-min dwell, editable). thpwId = ThemeParks.wiki GUID matching live standby waits + Lightning Lane (else matched by name). avgWait = typical wait (min) used for timing when live is off. closed true = gray. hoverText shows on map hover. track = [{x,y}...] ride path; marker animates along it. audio = URL/file looped while the avatar is at this stop during animation.',
   waits: 'Tab-delimited: attraction_id  time_of_day(HH:MM)  avg_wait_minutes. Linearly interpolated.'
 };
 function openModal() {
+  document.getElementById("ta-plan").value = planText();
   document.getElementById("ta-nodes").value = JSON.stringify(currentNodesArray(), null, 2);
   document.getElementById("ta-connections").value = JSON.stringify(currentConnArray(), null, 2);
   document.getElementById("ta-attractions").value = JSON.stringify(Array.from(state.attractions.values()), null, 2);
@@ -1905,6 +1891,8 @@ function currentWaitsTSV() {
   return lines.join("\n");
 }
 function applyData() {
+  const activeTab = document.querySelector(".tab.active").dataset.tab;
+  if (activeTab === "plan") { applyPlan(); return; }   // the Plan tab loads a sequence, not park data
   const msg = document.getElementById("modalMsg");
   try {
     const nodes = JSON.parse(document.getElementById("ta-nodes").value);
@@ -1921,6 +1909,74 @@ function applyData() {
     msg.textContent = "✓ Loaded " + nodes.length + " nodes, " + attrs.length + " attractions.";
   } catch (e) {
     msg.className = "err"; msg.textContent = "Error: " + e.message;
+  }
+}
+
+/* ---------- Plan as a portable name list (copy / paste) ----------------- */
+// The plan IS the sequence. Render it as one human name per line, in order, so
+// it can be copied out and pasted back. Transit rides: "🚂 Line → Stop".
+function planText() {
+  return state.sequence.map(id => {
+    if (isTransitToken(id)) {
+      const p = parseTransitToken(id);
+      const line = (state.transport || []).find(l => l.id === p.lineId);
+      const nm = line ? (line.name || line.id) : p.lineId;
+      return "🚂 " + nm + (p.alight ? " → " + stopName(p.alight) : "");
+    }
+    const a = state.attractions.get(id);
+    return a ? a.name : id;
+  }).join("\n");
+}
+// Parse a pasted name list back into a sequence; returns { seq, unmatched }.
+function parsePlan(text) {
+  const attrByName = new Map();
+  state.attractions.forEach(a => attrByName.set(normName(a.name), a.id));
+  // exact normalized match, else a UNIQUE substring match either way (so a
+  // typed "Haunted Mansion" still finds "Haunted", but ambiguous names don't).
+  function matchAttr(name) {
+    const n = normName(name);
+    if (!n) return null;
+    if (attrByName.has(n)) return attrByName.get(n);
+    if (n.length < 3) return null;
+    const hits = [];
+    attrByName.forEach((id, an) => { if (an.length >= 3 && (an.indexOf(n) >= 0 || n.indexOf(an) >= 0)) hits.push(id); });
+    return hits.length === 1 ? hits[0] : null;
+  }
+  const lineByName = new Map();
+  (state.transport || []).forEach(l => lineByName.set(normName(l.name || l.id), l));
+  const seq = [], unmatched = [];
+  String(text || "").split(/\r?\n/).forEach(raw => {
+    const line = raw.trim();
+    if (!line) return;
+    const marked = /^🚂/.test(line);
+    const body = line.replace(/^🚂\s*/, "").trim();
+    const parts = body.split(/\s*(?:→|->)\s*/);
+    const head = parts[0].trim(), tail = parts.length > 1 ? parts.slice(1).join(" ").trim() : "";
+    const tline = lineByName.get(normName(head));
+    if ((marked || parts.length > 1) && tline) {            // a transit ride
+      let alight = null;
+      if (tail) alight = lineStops(tline).map(s => s.node).find(n => normName(stopName(n)) === normName(tail)) || null;
+      seq.push(transitTokenFor(tline.id, alight));
+      return;
+    }
+    const aid = matchAttr(head) || matchAttr(body);
+    if (aid) { seq.push(aid); return; }
+    if (tline) { seq.push(transitTokenFor(tline.id, null)); return; }   // bare line name
+    unmatched.push(line);
+  });
+  return { seq: seq, unmatched: unmatched };
+}
+function applyPlan() {
+  const msg = document.getElementById("modalMsg");
+  const r = parsePlan(document.getElementById("ta-plan").value);
+  state.sequence = r.seq;
+  stop(); refresh();
+  if (r.unmatched.length) {
+    msg.className = "err";
+    msg.textContent = "Loaded " + r.seq.length + " stop(s). Couldn't match: " + r.unmatched.slice(0, 6).join(", ") + (r.unmatched.length > 6 ? "…" : "");
+  } else {
+    msg.className = "ok";
+    msg.textContent = "✓ Loaded plan — " + r.seq.length + " stop(s).";
   }
 }
 function autoDetectAndFill(text, filename) {

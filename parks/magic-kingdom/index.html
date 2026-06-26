@@ -106,13 +106,15 @@
     <h2>Load / Edit Data</h2>
     <div class="modal-body">
       <div class="tabs">
-        <div class="tab active" data-tab="nodes">Nodes</div>
+        <div class="tab active" data-tab="plan">Plan</div>
+        <div class="tab" data-tab="nodes">Nodes</div>
         <div class="tab" data-tab="connections">Connections</div>
         <div class="tab" data-tab="attractions">Attractions</div>
         <div class="tab" data-tab="waits">Wait Times (TSV)</div>
       </div>
       <p class="hint" id="paneHint"></p>
-      <div class="pane active" data-pane="nodes"><textarea id="ta-nodes" spellcheck="false"></textarea></div>
+      <div class="pane active" data-pane="plan"><textarea id="ta-plan" spellcheck="false" placeholder="One ride per line, in order…"></textarea></div>
+      <div class="pane" data-pane="nodes"><textarea id="ta-nodes" spellcheck="false"></textarea></div>
       <div class="pane" data-pane="connections"><textarea id="ta-connections" spellcheck="false"></textarea></div>
       <div class="pane" data-pane="attractions"><textarea id="ta-attractions" spellcheck="false"></textarea></div>
       <div class="pane" data-pane="waits"><textarea id="ta-waits" spellcheck="false"></textarea></div>
