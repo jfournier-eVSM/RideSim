@@ -873,10 +873,11 @@ function computeView() {
   }
   if (!isFinite(minX)) { view = { scale: 1, ox: 0, oy: 0 }; return; }
   const w = canvas.clientWidth, h = canvas.clientHeight;
-  // On phones a fixed 70px border would swallow most of a narrow canvas, so
-  // pad by a small fraction there — leaving the map ~90% of the width.
-  const padX = mobileMQ.matches ? w * 0.05 : 70;
-  const padY = mobileMQ.matches ? h * 0.05 : 70;
+  // Pad by ~6% of each dimension, capped at 70px. A fixed 70px would swallow a
+  // short/narrow canvas (e.g. a phone in landscape, which is wider than the
+  // mobile breakpoint yet very short) and shrink the map to nothing.
+  const padX = Math.min(70, w * 0.06);
+  const padY = Math.min(70, h * 0.06);
   const sx = (w - padX * 2) / Math.max(1, maxX - minX);
   const sy = (h - padY * 2) / Math.max(1, maxY - minY);
   const scale = Math.min(sx, sy);

@@ -310,3 +310,13 @@
     body.hide-left .col.center, body.hide-right .col.center { height: 72vh; }
     body.hide-left.hide-right .col.center { height: 88vh; }
   }
+
+  /* short viewports (phones in landscape): reclaim header height for the map */
+  @media (max-height: 520px) {
+    header { padding: 5px 10px; gap: 6px 8px; }
+    header h1 { display: none; }            /* the title takes a whole row */
+    .end-clock .tm, .feels-temp .tm { font-size: 15px; }
+    /* in the desktop side-by-side layout, narrow the panels so the map keeps width */
+    .col.left { width: 190px; }
+    .col.right { width: 260px; }
+  }
