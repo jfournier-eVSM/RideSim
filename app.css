@@ -67,6 +67,9 @@
   .col.left { width: 240px; border-right: 1px solid var(--border); }
   .col.center { flex: 1; min-width: 0; }
   .col.right { width: 340px; border-left: 1px solid var(--border); }
+  /* collapse side panels (map fills the freed space via flex) */
+  body.hide-left .col.left { display: none; }
+  body.hide-right .col.right { display: none; }
 
   .section-title {
     font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted);
@@ -303,4 +306,7 @@
        both lists scroll internally (timeline keeps its base .scroll flex:1) */
     .col.right { height: 44vh; order: 2; }
     .col.right #seqList { max-height: 18vh; }
+    /* hiding a side panel gives the map more height on phones */
+    body.hide-left .col.center, body.hide-right .col.center { height: 72vh; }
+    body.hide-left.hide-right .col.center { height: 88vh; }
   }

@@ -2462,6 +2462,21 @@ document.getElementById("playBtn").onclick = () => { playing ? pause() : play();
 document.getElementById("stopBtn").onclick = stop;
 document.getElementById("exportBtn").onclick = exportPlan;
 { const sb = document.getElementById("shareBtn"); if (sb) sb.onclick = shareLink; }
+// Collapse the side panels (attractions / sequence) — the map fills the space.
+function setPanelHidden(side, hidden, resize) {
+  const cap = side === "left" ? "Left" : "Right";
+  document.body.classList.toggle("hide-" + side, hidden);
+  const btn = document.getElementById("toggle" + cap);
+  if (btn) btn.classList.toggle("active", !hidden);     // active = panel shown
+  try { localStorage.setItem("ridesim.hide" + cap, hidden ? "1" : "0"); } catch (e) {}
+  if (resize) resizeCanvas();
+}
+["left", "right"].forEach(side => {
+  const cap = side === "left" ? "Left" : "Right";
+  setPanelHidden(side, localStorage.getItem("ridesim.hide" + cap) === "1", false);   // restore persisted state
+  const btn = document.getElementById("toggle" + cap);
+  if (btn) btn.onclick = () => setPanelHidden(side, !document.body.classList.contains("hide-" + side), true);
+});
 document.getElementById("clearSeq").onclick = () => { state.sequence = []; stop(); refresh(); };
 // "Paste" opens the data modal focused on the Plan tab (a copy/paste surface).
 document.getElementById("pasteBtn").onclick = pastePlanFromClipboard;
