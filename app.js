@@ -2469,14 +2469,13 @@ function setPanelHidden(side, hidden, resize) {
   document.body.classList.toggle("hide-" + side, hidden);
   const btn = document.getElementById("toggle" + cap);
   if (btn) btn.classList.toggle("active", !hidden);     // active = panel shown
-  try { localStorage.setItem("ridesim.hide" + cap, hidden ? "1" : "0"); } catch (e) {}
   // wait for the layout to reflow to the new panel sizes before remeasuring the
   // canvas (a synchronous resize reads the old size on mobile Safari).
   if (resize) requestAnimationFrame(() => requestAnimationFrame(resizeCanvas));
 }
 ["left", "right"].forEach(side => {
   const cap = side === "left" ? "Left" : "Right";
-  setPanelHidden(side, localStorage.getItem("ridesim.hide" + cap) === "1", false);   // restore persisted state
+  setPanelHidden(side, false, false);   // both panels shown by default each load (hiding is per-session)
   const btn = document.getElementById("toggle" + cap);
   if (btn) btn.onclick = () => setPanelHidden(side, !document.body.classList.contains("hide-" + side), true);
 });
