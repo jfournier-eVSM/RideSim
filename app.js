@@ -2469,7 +2469,9 @@ function setPanelHidden(side, hidden, resize) {
   const btn = document.getElementById("toggle" + cap);
   if (btn) btn.classList.toggle("active", !hidden);     // active = panel shown
   try { localStorage.setItem("ridesim.hide" + cap, hidden ? "1" : "0"); } catch (e) {}
-  if (resize) resizeCanvas();
+  // wait for the layout to reflow to the new panel sizes before remeasuring the
+  // canvas (a synchronous resize reads the old size on mobile Safari).
+  if (resize) requestAnimationFrame(() => requestAnimationFrame(resizeCanvas));
 }
 ["left", "right"].forEach(side => {
   const cap = side === "left" ? "Left" : "Right";
@@ -2723,6 +2725,17 @@ document.getElementById("modalBg").addEventListener("click", e => {
   if (e.target.id === "modalBg") e.currentTarget.classList.remove("show");
 });
 window.addEventListener("resize", resizeCanvas);
+// Re-fit the map whenever its container actually changes size (panel collapse,
+// orientation change, etc.) — more reliable than guessing post-layout timing.
+if (window.ResizeObserver) {
+  let roPending = false;
+  const ro = new ResizeObserver(() => {
+    if (roPending) return;
+    roPending = true;
+    requestAnimationFrame(() => { roPending = false; resizeCanvas(); });
+  });
+  ro.observe(canvas);
+}
 
 /* ---------- Init -------------------------------------------------------- */
 function loadSample() {
