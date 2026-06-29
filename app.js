@@ -21,8 +21,9 @@ function applyParkMeta() {
   if (h1) h1.innerHTML =
     '<a class="crumb" href="../../" title="Choose a different park">Parks</a>' +
     '<span class="sep">›</span>' +
-    (m.emoji ? m.emoji + " " : "") + (m.name || "") +
-    ' <span>Ride Sequence Planner</span>';
+    '<a class="title-home" href="./" title="Start a fresh plan">' +
+    (m.emoji ? m.emoji + " " : "") + esc(m.name || "") +
+    ' <span>Ride Sequence Planner</span></a>';
 }
 
 // Attraction categories. A "restaurant" is an attraction with no wait time
@@ -1722,6 +1723,16 @@ function updateEndClock() {
   el.innerHTML = '<div class="lbl">ends</div><div class="tm">' + t12(finish) + '</div>';
 }
 
+// Keep the address bar in sync with the current plan, so a refresh restores it
+// (and Clear, which empties the sequence, drops the ?plan param).
+function syncPlanUrl() {
+  try {
+    const u = new URL(location.href);
+    if (state.sequence.length) u.searchParams.set("plan", planToParam());
+    else u.searchParams.delete("plan");
+    history.replaceState(null, "", u.toString());
+  } catch (e) {}
+}
 /* ---------- Master refresh ---------------------------------------------- */
 function refresh() {
   selectedStep = null;   // the list is about to rebuild; drop any tap-selection
@@ -1733,6 +1744,7 @@ function refresh() {
   updateEndClock();
   renderSunFooter();
   renderLLPanel();
+  syncPlanUrl();
   draw();
 }
 
