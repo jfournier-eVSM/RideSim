@@ -1741,7 +1741,7 @@ function drawAttrLabel(a) {
   // closed attraction still gets a bubble, but can't be added)
   const closed = attrClosed(a), inSeq = seqIndexOf(a.id) >= 0;
   if (closed) lines.push({ t: "closed — can't add to plan", font: subFont, color: "#e0a3a3" });
-  else lines.push({ t: inSeq ? "✓ in plan — tap to add again" : "＋ tap to add to plan", font: subFont, color: inSeq ? "#7bd88f" : "#9fd0ff" });
+  else lines.push({ t: inSeq ? "✓ in plan — tap here to add again" : "＋ tap here to add to plan", font: subFont, color: inSeq ? "#7bd88f" : "#9fd0ff" });
 
   const padX = 8, padY = 6, lineH = 15;
   let bw = 0;
