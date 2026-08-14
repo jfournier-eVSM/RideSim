@@ -1345,9 +1345,10 @@ function drawLeaderStem(x1, y1, x2, y2, fs) {
   ctx.lineWidth = Math.max(1, fs * 0.07); ctx.strokeStyle = "rgba(8,15,25,0.85)";
   ctx.fillStyle = "rgba(234,242,255,0.95)"; ctx.fill(); ctx.stroke();
 }
-// Category priority for on-map labels. Names show for every visible category, but
-// the font steps down by the category's rank in this list among the visible ones —
-// the first visible category is full size, each following one a bit smaller.
+const LABEL_ZOOM = 2.5;   // zoom at which non-primary category names fade in (~halfway to max)
+// Category priority for on-map labels. The first visible category is always shown
+// full size; the rest fade in only once zoomed, and the font steps down by rank in
+// this list among the visible ones (first full size, each following one smaller).
 const LABEL_PRIORITY = ["ride", "restaurant", "shop", "pin", "restroom", "other"];
 // Draw attraction names for every visible category. Font steps down by the
 // category's rank among the visible ones (LABEL_PRIORITY order): the first visible
@@ -1357,16 +1358,23 @@ const LABEL_PRIORITY = ["ride", "restaurant", "shop", "pin", "restroom", "other"
 // plan stops show. Base font ~sqrt(zoom).
 function drawMapLabels() {
   const visible = LABEL_PRIORITY.filter(c => catFilter[c]);
-  if (!visible.length && !state.sequence.length) return;
+  const primary = visible[0] || null;
+  const zoomA = Math.max(0, Math.min(1, (userZoom - LABEL_ZOOM) / 0.6));
+  if (!primary && zoomA <= 0) return;
   const rank = {}; visible.forEach((c, i) => rank[c] = i);
   const w = canvas.clientWidth, h = canvas.clientHeight, sz = attrSize();
   const baseFs = 10 * Math.sqrt(userZoom);
-  ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.globalAlpha = 1;
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
   ctx.lineJoin = "round";
   state.attractions.forEach(a => {
     const inSeq = seqIndexOf(a.id), cat = attrCat(a);
     if (!catFilter[cat] && inSeq < 0) return;      // filtered out
     if (playing && inSeq < 0) return;              // while animating, only plan stops
+    // primary (first visible) category is always labelled; the rest fade in once zoomed
+    let alpha;
+    if (cat === primary) alpha = 1;
+    else if (zoomA > 0) alpha = zoomA;
+    else return;
     // full size for the first visible category, a step (10%) smaller for each after it
     const fs = baseFs * Math.max(0.5, 1 - (rank[cat] != null ? rank[cat] : 0) * 0.1);
     ctx.font = "600 " + fs.toFixed(1) + "px -apple-system,Segoe UI,Roboto,sans-serif";
@@ -1376,6 +1384,7 @@ function drawMapLabels() {
     if (X < -60 || X > w + 60 || Y < -20 || Y > h + 40) return;   // only what's on screen
     const r = sz.r * (cat === "pin" || cat === "other" ? 0.5 : 1);   // pins/other draw at half radius
     const name = a.name || a.id;
+    ctx.globalAlpha = alpha;
     if (a.labelPos) {
       // custom placement: centre the label on the shape's control point; leader points to it
       const Lx = tx(a.labelPos.x), Ly = ty(a.labelPos.y);
@@ -1395,6 +1404,7 @@ function drawMapLabels() {
       ctx.strokeStyle = "rgba(8,15,25,0.9)"; ctx.strokeText(name, X, labelY);
       ctx.fillStyle = "#eaf2ff"; ctx.fillText(name, X, labelY);
     }
+    ctx.globalAlpha = 1;
   });
 }
 function draw(marker) {
