@@ -1788,8 +1788,8 @@ function drawAttrLabel(a) {
   bw += padX * 2;
   const bh = padY * 2 + lineH * lines.length;
   let bx = Math.max(4, Math.min(X - bw / 2, canvas.clientWidth - bw - 4));
-  let by = Y - 14 - bh;
-  if (by < 4) by = Y + 14;            // flip below the marker if it'd clip the top
+  let by = Y - 17 - bh;
+  if (by < 4) by = Y + 17;            // flip below the marker if it'd clip the top
 
   ctx.fillStyle = "rgba(16,22,36,0.92)";
   ctx.strokeStyle = ATTR_COLORS[attrCat(a)].off; ctx.lineWidth = 1;
