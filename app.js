@@ -1124,7 +1124,6 @@ let fitView = { scale: 1, ox: 0, oy: 0 };                 // fit-to-window basel
 let fitBox = { minX: 0, minY: 0, maxX: 0, maxY: 0 };      // node+map bbox in map coords (pan clamp)
 let userZoom = 1, panX = 0, panY = 0;                     // panX/panY in screen px, applied after zoom
 const MAX_ZOOM = 6;
-const LABEL_ZOOM = 2.5;   // zoom at which attraction names fade in below their circles (~halfway to max)
 function applyView() {
   view.scale = fitView.scale * userZoom;
   view.ox = fitView.ox * userZoom + panX;
@@ -1346,44 +1345,37 @@ function drawLeaderStem(x1, y1, x2, y2, fs) {
   ctx.lineWidth = Math.max(1, fs * 0.07); ctx.strokeStyle = "rgba(8,15,25,0.85)";
   ctx.fillStyle = "rgba(234,242,255,0.95)"; ctx.fill(); ctx.stroke();
 }
-// Category priority for the always-on labels: the first of these that's visible
-// on the map gets its names shown at ALL zooms. Every other category's names fade
-// in only once zoomed past LABEL_ZOOM. So at a glance one category is labelled
-// (uncluttered), and zooming reveals the rest.
+// Category priority for on-map labels. Names show for every visible category, but
+// the font steps down by the category's rank in this list among the visible ones —
+// the first visible category is full size, each following one a bit smaller.
 const LABEL_PRIORITY = ["ride", "restaurant", "shop", "pin", "restroom", "other"];
-function primaryLabelCat() {
-  for (let i = 0; i < LABEL_PRIORITY.length; i++) if (catFilter[LABEL_PRIORITY[i]]) return LABEL_PRIORITY[i];
-  return null;
-}
-// Draw attraction names. The primary (first-visible) category is always shown;
-// others fade in past LABEL_ZOOM. Default position is centred below the circle; a
-// shape's control point (a.labelPos) overrides that, centring the label there with
-// the leader pointing at it. While animating, only plan stops show. Font ~sqrt(zoom).
+// Draw attraction names for every visible category. Font steps down by the
+// category's rank among the visible ones (LABEL_PRIORITY order): the first visible
+// category is full size, each following one a bit smaller. Default position is
+// centred below the circle; a shape's control point (a.labelPos) overrides that,
+// centring the label there with the leader pointing at it. While animating, only
+// plan stops show. Base font ~sqrt(zoom).
 function drawMapLabels() {
-  const primary = primaryLabelCat();
-  const zoomA = Math.max(0, Math.min(1, (userZoom - LABEL_ZOOM) / 0.6));
-  if (!primary && zoomA <= 0) return;
+  const visible = LABEL_PRIORITY.filter(c => catFilter[c]);
+  if (!visible.length && !state.sequence.length) return;
+  const rank = {}; visible.forEach((c, i) => rank[c] = i);
   const w = canvas.clientWidth, h = canvas.clientHeight, sz = attrSize();
-  const fs = 10 * Math.sqrt(userZoom);
-  ctx.textAlign = "center"; ctx.textBaseline = "top";
-  ctx.font = "600 " + fs.toFixed(1) + "px -apple-system,Segoe UI,Roboto,sans-serif";
+  const baseFs = 10 * Math.sqrt(userZoom);
+  ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.globalAlpha = 1;
   ctx.lineJoin = "round";
   state.attractions.forEach(a => {
     const inSeq = seqIndexOf(a.id), cat = attrCat(a);
     if (!catFilter[cat] && inSeq < 0) return;      // filtered out
     if (playing && inSeq < 0) return;              // while animating, only plan stops
-    // primary category is always labelled; others fade in with zoom (minor POIs excluded)
-    let alpha;
-    if (cat === primary) alpha = 1;
-    else if (zoomA > 0 && cat !== "pin" && cat !== "restroom") alpha = zoomA;
-    else return;
+    // full size for the first visible category, a step (10%) smaller for each after it
+    const fs = baseFs * Math.max(0.5, 1 - (rank[cat] != null ? rank[cat] : 0) * 0.1);
+    ctx.font = "600 " + fs.toFixed(1) + "px -apple-system,Segoe UI,Roboto,sans-serif";
     const loc = a.displayLocation || state.nodes.get(a.entranceNodeId);
     if (!loc) return;
     const X = tx(loc.x), Y = ty(loc.y);
     if (X < -60 || X > w + 60 || Y < -20 || Y > h + 40) return;   // only what's on screen
     const r = sz.r * (cat === "pin" || cat === "other" ? 0.5 : 1);   // pins/other draw at half radius
     const name = a.name || a.id;
-    ctx.globalAlpha = alpha;
     if (a.labelPos) {
       // custom placement: centre the label on the shape's control point; leader points to it
       const Lx = tx(a.labelPos.x), Ly = ty(a.labelPos.y);
@@ -1403,7 +1395,6 @@ function drawMapLabels() {
       ctx.strokeStyle = "rgba(8,15,25,0.9)"; ctx.strokeText(name, X, labelY);
       ctx.fillStyle = "#eaf2ff"; ctx.fillText(name, X, labelY);
     }
-    ctx.globalAlpha = 1;
   });
 }
 function draw(marker) {
