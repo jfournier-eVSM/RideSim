@@ -1544,9 +1544,9 @@ function draw(marker) {
       if (inSeq >= 0) drawSeqBadge(X, Y, fs * 0.4, inSeq + 1);
       return;
     }
-    const live = (showLiveWaits && liveWaits.anyOpen) ? liveWaitFor(a) : null;  // hide when park closed
+    const live = (!playing && showLiveWaits && liveWaits.anyOpen) ? liveWaitFor(a) : null;  // hide when park closed / animating
     const liveShow = live && (!live.open || typeof live.wait === "number");      // skip open-but-no-standby
-    const ll = showLL ? llAvail(a) : null;          // AVAILABLE Lightning Lane (countdown takes over the center)
+    const ll = (!playing && showLL) ? llAvail(a) : null;   // AVAILABLE Lightning Lane (hidden while animating)
     // pins are points of interest — half the diameter of other markers
     let radius = (hot ? sz.hot : sz.r) * (cat === "pin" || cat === "other" ? 0.5 : 1), fill, inside = "", insideColor = "#08263a", closedFace = false;
     let waitStrokeColor = null, waitStrokeW = 0;   // live wait shown as a ring: color + width ∝ wait
